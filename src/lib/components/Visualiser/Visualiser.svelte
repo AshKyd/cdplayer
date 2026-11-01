@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { fade } from "svelte/transition";
   import { WAVEFORM_SAMPLES } from "$lib/playback/WebAudioHandler";
   import { loadCoverBitmap } from "$lib/visualisers/loadCoverBitmap";
   import type { VisualiserTrackInfo } from "$lib/visualisers/types";
@@ -111,7 +112,8 @@
   });
 </script>
 
-<canvas bind:this={canvas} aria-label="Visualiser"></canvas>
+<!-- `global`: the page's {#if}/{#key} creates and removes this component, not a block inside it. -->
+<canvas bind:this={canvas} aria-label="Visualiser" transition:fade|global={{ duration: 300 }}></canvas>
 
 <style>
   /* A backdrop for the whole window, behind the page content and ignoring the pointer. */

@@ -75,6 +75,8 @@
       {rows}
       {columns}
       autoFit
+      border={false}
+      showLines={false}
       listLabels={false}
       titleKey="title"
       rowKey={(row) => row.key}
@@ -89,6 +91,9 @@
   .tracks {
     height: 100%;
     min-height: 0;
+    /* The table is borderless and square, so this clips the header and rows to rounded corners. */
+    overflow: hidden;
+    border-radius: var(--akui-radius-m);
   }
 
   .number-cell {
@@ -119,9 +124,14 @@
     place-items: center;
   }
 
-  /* The header's button colour, made see-through so the frosted section behind the table shows. */
+  /* A faint wash of the text colour, so the frosted section behind the table shows through without going muddy. */
   .tracks {
-    --akui-details-head-bg: color-mix(in srgb, var(--akui-bg-button, #e5e7eb) 50%, transparent);
+    --akui-details-head-bg: color-mix(in srgb, var(--akui-fg) 10%, transparent);
+  }
+
+  /* `showLines={false}` clears the lines between rows and columns, but not the line under the header. */
+  .tracks :global(.akui-details-head) {
+    border-bottom: none;
   }
 
   .tracks :global(.akui-details-row.current) {
