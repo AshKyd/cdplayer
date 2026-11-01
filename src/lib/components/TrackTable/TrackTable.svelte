@@ -119,9 +119,9 @@
     place-items: center;
   }
 
-  /* The header's solid button colour, made see-through so the frosted section behind the table shows. */
-  .tracks :global(.akui-details-header) {
-    background-color: color-mix(in srgb, var(--akui-bg-button, #e5e7eb) 50%, transparent);
+  /* The header's button colour, made see-through so the frosted section behind the table shows. */
+  .tracks {
+    --akui-details-head-bg: color-mix(in srgb, var(--akui-bg-button, #e5e7eb) 50%, transparent);
   }
 
   .tracks :global(.akui-details-row.current) {
