@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { UIRoot } from "svelte-akui";
+  import CoverAccent from "$lib/components/CoverAccent/CoverAccent.svelte";
   import NativeWindowTheme from "$lib/components/NativeWindowTheme/NativeWindowTheme.svelte";
 
   let { children }: { children: Snippet } = $props();
@@ -8,6 +9,7 @@
 
 <UIRoot>
   <NativeWindowTheme />
+  <CoverAccent />
   {@render children()}
 </UIRoot>
 

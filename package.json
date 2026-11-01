@@ -18,6 +18,7 @@
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
     "bootstrap-icons": "^1.13.2",
+    "node-vibrant": "^4.0.4",
     "svelte-akui": "github:ashkyd/svelte-akui"
   },
   "devDependencies": {
