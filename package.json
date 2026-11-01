@@ -20,14 +20,18 @@
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
     "bootstrap-icons": "^1.13.2",
+    "dexie": "^4.4.7",
     "node-vibrant": "^4.0.4",
     "svelte-akui": "github:ashkyd/svelte-akui"
   },
   "devDependencies": {
+    "@storybook/addon-svelte-csf": "^5.1.6",
+    "@storybook/sveltekit": "^10.6.5",
     "@sveltejs/adapter-static": "^3.0.10",
     "@sveltejs/kit": "^2.65.1",
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
     "@tauri-apps/cli": "^2",
+    "storybook": "^10.6.5",
     "svelte": "^5.56.3",
     "svelte-check": "^4.6.0",
     "typescript": "~6.0.3",

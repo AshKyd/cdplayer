@@ -1,3 +1,4 @@
+import { defaultKeyValueCache, type KeyValueCache } from "$lib/cache/keyValueCache";
 import type { Toc } from "$lib/disc/types";
 import { computeDiscId } from "./discId";
 import type { DiscMetadata } from "./types";
@@ -8,19 +9,30 @@ const COVER_ART_URL = "https://coverartarchive.org/release";
 /** MusicBrainz and the Cover Art Archive can be slow; a disc is playable without them, so don't wait long. */
 const REQUEST_TIMEOUT_MS = 10_000;
 
-const CACHE_KEY_PREFIX = "cdplayer.musicbrainz.";
+/** Original cover images can be several MB, so they get longer. */
+const IMAGE_TIMEOUT_MS = 30_000;
 
-/** Where looked-up discs are kept, so a disc is only looked up once. `localStorage` fits. */
-export interface MetadataStorage {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
-}
+const METADATA_KEY_PREFIX = "musicbrainz.disc.";
+const COVER_KEY_PREFIX = "coverart.release.";
 
 interface Options {
   /** Tests pass a fake. */
   fetcher?: typeof fetch;
-  /** Defaults to `localStorage` when there is one. */
-  storage?: MetadataStorage | null;
+  /** Where looked-up discs and covers are kept. Defaults to the Dexie cache; `null` turns caching off. */
+  cache?: KeyValueCache | null;
+}
+
+/** A cover image as kept in the cache. */
+interface CachedCover {
+  blob: Blob;
+  sourceUrl: string;
+  /** False when only a thumbnail was available, so a later lookup tries for the original again. */
+  isOriginal: boolean;
+}
+
+interface PickedCover {
+  url: string;
+  isOriginal: boolean;
 }
 
 interface ArtistCredit {
@@ -75,38 +87,31 @@ export const parseDiscLookup = (json: { releases?: MusicBrainzRelease[] }, discI
   };
 };
 
-/** A front cover thumbnail from a Cover Art Archive index, preferring about 250 px. `null` if there isn't one. */
-export const pickCoverUrl = (index: CoverArtIndex): string | null => {
+/** Largest thumbnail first, for when a front image has no original. */
+const THUMBNAIL_SIZES_LARGEST_FIRST = ["1200", "large", "500", "small", "250"];
+
+/**
+ * The front cover from a Cover Art Archive index at the highest quality on offer: the original upload,
+ * else the largest thumbnail. `null` if there are no images.
+ */
+export const pickCover = (index: CoverArtIndex): PickedCover | null => {
   const front = index.images?.find(({ front }) => front) ?? index.images?.[0];
-  const url = front?.thumbnails?.["250"] ?? front?.thumbnails?.small ?? front?.image;
+  if (!front) return null;
+
+  const thumbnail = THUMBNAIL_SIZES_LARGEST_FIRST.map((size) => front.thumbnails?.[size]).find(Boolean);
+  const url = front.image ?? thumbnail;
+  if (!url) return null;
+
   // Older entries are plain http, which a secure page may not load.
-  return url ? url.replace(/^http:/, "https:") : null;
+  return { url: url.replace(/^http:/, "https:"), isOriginal: Boolean(front.image) };
 };
 
-const defaultStorage = (): MetadataStorage | null => {
-  try {
-    return globalThis.localStorage ?? null;
-  } catch {
-    return null;
-  }
-};
+/** Cache failures (missing, blocked or full) are swallowed: the lookup just happens again next time. */
+const readCache = <T>(cache: KeyValueCache | null, key: string): Promise<T | undefined> =>
+  cache ? cache.get<T>(key).catch(() => undefined) : Promise.resolve(undefined);
 
-const readCache = (storage: MetadataStorage | null, discId: string): DiscMetadata | null => {
-  try {
-    const stored = storage?.getItem(CACHE_KEY_PREFIX + discId);
-    return stored ? (JSON.parse(stored) as DiscMetadata) : null;
-  } catch {
-    return null;
-  }
-};
-
-const writeCache = (storage: MetadataStorage | null, metadata: DiscMetadata): void => {
-  try {
-    storage?.setItem(CACHE_KEY_PREFIX + metadata.discId, JSON.stringify(metadata));
-  } catch {
-    // Storage can be full or blocked; the lookup just happens again next time.
-  }
-};
+const writeCache = (cache: KeyValueCache | null, key: string, value: unknown): Promise<void> =>
+  cache ? cache.set(key, value).catch(() => undefined) : Promise.resolve();
 
 /** One string per line so the details can be copied out of the console. */
 const log = (details: Record<string, unknown>): void => console.log(`[musicbrainz] ${JSON.stringify(details)}`);
@@ -121,18 +126,53 @@ const getJson = async <T>(fetcher: typeof fetch, url: string): Promise<{ status:
   return { status: response.status, json: response.ok ? ((await response.json()) as T) : null };
 };
 
-/** The front cover of a release, or `null`. Never throws: a missing cover isn't worth failing the lookup. */
-const fetchCoverUrl = async (fetcher: typeof fetch, releaseId: string): Promise<string | null> =>
-  getJson<CoverArtIndex>(fetcher, `${COVER_ART_URL}/${releaseId}`)
+const getBlob = async (fetcher: typeof fetch, url: string): Promise<Blob> => {
+  log({ fetching: url });
+  const response = await fetcher(url, { signal: AbortSignal.timeout(IMAGE_TIMEOUT_MS) });
+  log({ fetched: url, status: response.status, finalUrl: response.url });
+  if (!response.ok) throw new Error(`answered ${response.status}`);
+  return response.blob();
+};
+
+const errorText = (reason: unknown): string => (reason instanceof Error ? `${reason.name}: ${reason.message}` : String(reason));
+
+/**
+ * A URL for the front cover of a release at the highest quality available, or `null`. Never throws: a
+ * missing cover isn't worth failing the lookup.
+ *
+ * The image itself is kept in the cache, as a blob. A cover cached from a thumbnail is replaced once the
+ * original can be fetched. If the image can't be downloaded (say the archive blocks cross-origin reads),
+ * the remote URL is used directly, as before, and nothing is cached.
+ */
+const resolveCoverUrl = async (fetcher: typeof fetch, cache: KeyValueCache | null, releaseId: string): Promise<string | null> => {
+  const cacheKey = COVER_KEY_PREFIX + releaseId;
+  const cached = await readCache<CachedCover>(cache, cacheKey);
+  if (cached?.isOriginal) return URL.createObjectURL(cached.blob);
+
+  // From here the best we have is a thumbnail or nothing, so look for something better.
+  const picked = await getJson<CoverArtIndex>(fetcher, `${COVER_ART_URL}/${releaseId}`)
     .then(({ json }) => {
-      const coverUrl = json ? pickCoverUrl(json) : null;
-      log({ releaseId, imageCount: json?.images?.length ?? 0, coverUrl });
-      return coverUrl;
+      const cover = json ? pickCover(json) : null;
+      log({ releaseId, imageCount: json?.images?.length ?? 0, coverUrl: cover?.url ?? null, isOriginal: cover?.isOriginal ?? false });
+      return cover;
     })
     .catch((reason) => {
-      log({ releaseId, coverError: reason instanceof Error ? `${reason.name}: ${reason.message}` : String(reason) });
+      log({ releaseId, coverError: errorText(reason) });
       return null;
     });
+
+  const fallbackUrl = cached ? URL.createObjectURL(cached.blob) : null;
+  if (!picked) return fallbackUrl;
+
+  const blob = await getBlob(fetcher, picked.url).catch((reason) => {
+    log({ releaseId, imageError: errorText(reason) });
+    return null;
+  });
+  if (!blob) return fallbackUrl ?? picked.url;
+
+  await writeCache(cache, cacheKey, { blob, sourceUrl: picked.url, isOriginal: picked.isOriginal } satisfies CachedCover);
+  return URL.createObjectURL(blob);
+};
 
 /**
  * Looks a disc up on MusicBrainz by its disc ID and takes the first matching release, with its front
@@ -144,19 +184,15 @@ const fetchCoverUrl = async (fetcher: typeof fetch, releaseId: string): Promise<
  * Throws an `Error` with a readable message if the disc has no audio, is not on MusicBrainz, or the
  * request fails.
  */
-export const lookupDiscMetadata = async (toc: Toc, { fetcher = fetch, storage = defaultStorage() }: Options = {}): Promise<DiscMetadata> => {
+export const lookupDiscMetadata = async (toc: Toc, { fetcher = fetch, cache = defaultKeyValueCache() }: Options = {}): Promise<DiscMetadata> => {
   const discId = await computeDiscId(toc);
   if (!discId) throw new Error("the disc has no audio tracks");
 
-  const cached = readCache(storage, discId);
+  // The cached metadata never holds a cover URL (a blob URL dies with the page); the cover is resolved each time.
+  const cached = await readCache<DiscMetadata>(cache, METADATA_KEY_PREFIX + discId);
   if (cached) {
-    log({ cacheHit: discId, releaseId: cached.releaseId, coverUrl: cached.coverUrl });
-    if (cached.coverUrl) return cached;
-
-    // An earlier cover lookup may have failed (offline, timeout) and been cached as "no cover", so retry just the cover.
-    const withCover = { ...cached, coverUrl: await fetchCoverUrl(fetcher, cached.releaseId) };
-    if (withCover.coverUrl) writeCache(storage, withCover);
-    return withCover;
+    log({ cacheHit: discId, releaseId: cached.releaseId });
+    return { ...cached, coverUrl: await resolveCoverUrl(fetcher, cache, cached.releaseId) };
   }
 
   const { status, json } = await getJson<{ releases?: MusicBrainzRelease[] }>(
@@ -171,7 +207,6 @@ export const lookupDiscMetadata = async (toc: Toc, { fetcher = fetch, storage = 
   const metadata = parseDiscLookup(json, discId);
   if (!metadata) throw new Error("this disc is not on MusicBrainz");
 
-  const result = { ...metadata, coverUrl: await fetchCoverUrl(fetcher, metadata.releaseId) };
-  writeCache(storage, result);
-  return result;
+  await writeCache(cache, METADATA_KEY_PREFIX + discId, metadata);
+  return { ...metadata, coverUrl: await resolveCoverUrl(fetcher, cache, metadata.releaseId) };
 };

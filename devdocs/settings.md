@@ -7,7 +7,9 @@ User settings, kept in a store that every window shares, saved to `localStorage`
 - `src/lib/settings/settings.svelte.ts`: `AppSettings` (the store), the `settings` singleton, `SettingsValues`, `DEFAULT_SETTINGS`.
 - `src/lib/settings/tauriSettingsSync.ts`: sends changes to other windows as Tauri events (`settings-changed`).
 - `src/lib/settings/openSettingsWindow.ts`: opens the settings window, or focuses it if open.
-- `src/routes/settings/+page.svelte`: the settings window, using akui `Settings`, `ControlGroup` and `ControlItemText`.
+- `src/routes/settings/+page.svelte`: the settings window, using akui `Settings`, `ControlGroup` and `ControlItemText`. The "General" section is here; the others are components.
+- `src/lib/components/VisualiserSettings/VisualiserSettings.svelte`: the "Visualisations" section (`visualiserEnabled`, `visualiserId`).
+- `src/lib/components/LastFmSettings/LastFmSettings.svelte`: the "Last.fm" section ([last-fm.md](last-fm.md)).
 - `src-tauri/capabilities/default.json`: lists the `settings` window and allows creating and focusing windows.
 
 ## API
@@ -33,5 +35,5 @@ User settings, kept in a store that every window shares, saved to `localStorage`
 ## Limits
 
 - Outside Tauri (plain browser, tests) the sync does nothing; the store still works in one window.
-- The settings window has two sections ("General", "Last.fm").
+- The settings window opens at 640 × 520 and has three sections ("General", "Visualisations", "Last.fm").
 - No menu item or keyboard shortcut for the settings window; that would need Rust.

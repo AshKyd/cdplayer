@@ -9,6 +9,7 @@ No account or API key is needed. MusicBrainz asks for a `User-Agent` naming the 
 - `src/lib/metadata/discId.ts`: `discIdInput(toc)` and `computeDiscId(toc)`.
 - `src/lib/metadata/musicBrainz.ts`: `lookupDiscMetadata(toc)` and its parsing helpers.
 - `src/lib/metadata/types.ts`: `DiscMetadata` and `TrackMetadata`.
+- `src/lib/cache/keyValueCache.ts`: the Dexie key/value cache.
 
 ## Disc ID
 
@@ -23,16 +24,24 @@ No account or API key is needed. MusicBrainz asks for a `User-Agent` naming the 
 - `GET https://musicbrainz.org/ws/2/discid/{id}?inc=recordings+artist-credits&fmt=json`.
 - The first release in the answer is used. For a release with several discs, the medium that lists this disc ID; otherwise the first.
 - The album, artist (the credit's names with their join phrases), year and each track's title and artist are read from it. Track numbers match the disc's track numbers.
-- The cover comes from `https://coverartarchive.org/release/{release id}`: the front image's 250 px thumbnail, over https. A release with no cover, or a failed request, gives `coverUrl: null` and does not fail the lookup.
-- Each request times out after 10 s.
+- The cover comes from `https://coverartarchive.org/release/{release id}`: the front image's original upload (the highest quality), over https. If there is no original, the largest thumbnail (1200, large, 500, small, 250). A release with no cover, or a failed request, gives `coverUrl: null` and does not fail the lookup.
+- The image is downloaded and `coverUrl` is a `blob:` URL of the cached copy. If the download fails (for example the archive blocks cross-origin reads), `coverUrl` is the remote URL and nothing is cached.
+- Metadata requests time out after 10 s; image downloads after 30 s.
 - Errors are `Error`s with readable messages: the disc has no audio, is not on MusicBrainz (404 or no release), MusicBrainz is busy (503), answered another status, or could not be reached.
 
 ## Cache
 
-A found disc is stored in `localStorage` as `cdplayer.musicbrainz.{disc id}`, so it is looked up once. Failures are not stored, so they are retried the next time the disc is found. Storage that is missing, full or blocked is ignored.
+Uses the Dexie key/value cache (`src/lib/cache/keyValueCache.ts`: `KeyValueCache`, `DexieKeyValueCache`, `defaultKeyValueCache()`). It is IndexedDB database `cdplayer-cache`, table `entries` (`key`, `value`, `storedAt`). Any structured-cloneable value works, including `Blob`s.
+
+- `musicbrainz.disc.{disc id}`: the `DiscMetadata`, with `coverUrl: null` (a blob URL dies with the page, so the cover is resolved on each lookup).
+- `coverart.release.{release id}`: `{ blob, sourceUrl, isOriginal }`.
+- A cached original is used with no request. A cached thumbnail (or no cached cover) triggers a Cover Art Archive request to look for the original; if the archive is unreachable the cached thumbnail is kept.
+- Failures are not stored, so they are retried the next time the disc is found. A cache that is missing, full or blocked is ignored.
+- Existing `localStorage` entries (`cdplayer.musicbrainz.*`) are no longer read.
 
 ## In the player
 
+- `CDPlayer` revokes the cover's blob URL (`revokeCoverUrl`) when the disc changes or is removed, and when a lookup finishes for a disc that is no longer current.
 - `CDPlayer.metadata` is the result, or `null`. `metadataError` holds the reason when nothing was found.
 - `trackTitle(track)` returns the MusicBrainz name, or "Track N" (and "Data track" for a data track). `trackArtist(track)` returns the track's own artist only when it differs from the album's, which is how a compilation shows an Artist column.
 - A failed lookup is not an error state: the player becomes `ready` with generic names, and the page says why.
@@ -49,4 +58,4 @@ A found disc is stored in `localStorage` as `cdplayer.musicbrainz.{disc id}`, so
 ## Tests
 
 - `discId.test.ts`: the two published examples, the alphabet and length, no audio, and the CD-Extra lead-out.
-- `musicBrainz.test.ts`: parsing (artist credits, multi-disc releases, no release), cover choice, and the lookup against a fake `fetch`: found, no cover, cache hit, not found, busy, other statuses, network failure, no audio, and failing storage.
+- `musicBrainz.test.ts`: parsing (artist credits, multi-disc releases, no release), cover choice (original, thumbnail fallback), and the lookup against a fake `fetch` and in-memory cache: found, no cover, failed image download, cache hit, thumbnail upgraded to original, offline with cached thumbnail, not found, busy, other statuses, network failure, no audio, and a failing cache. The Dexie class itself is not tested (no IndexedDB in Node).

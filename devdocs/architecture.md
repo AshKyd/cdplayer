@@ -101,7 +101,7 @@ Because CD tracks are split precisely on sample boundaries and every chunk is pl
 
 ### Phase 4: Metadata & Polish
 * ~~MusicBrainz DiscID calculation~~ Done, in JS rather than Rust (`crypto.subtle` over the TOC we already have), following "keep it a JS app" ([musicbrainz.md](musicbrainz.md)).
-* ~~Fetch album art and tracklists from the MusicBrainz/Cover Art Archive APIs~~ Done in JS: the first matching release's names and front cover, cached by disc ID. `CDPlayer` runs the lookup in its `loadingMetadata` state. Still to do: choosing between several matching releases, and a custom `User-Agent`.
+* ~~Fetch album art and tracklists from the MusicBrainz/Cover Art Archive APIs~~ Done in JS: the first matching release's names and highest-quality front cover, cached by disc ID in a Dexie key/value table. `CDPlayer` runs the lookup in its `loadingMetadata` state. Still to do: choosing between several matching releases, and a custom `User-Agent`.
 * ~~Optical drive polling~~ Done: the JS `DiscWatcher` polls `get_toc` for insertion/ejection ([disc-watcher.md](disc-watcher.md)). Native OS notifications (DiskArbitration, `WM_DEVICECHANGE`, udev) are not used, to keep this one cross-platform code path.
 
 ## 6. Known Issues to Solve

@@ -12,8 +12,8 @@ export async function openSettingsWindow(): Promise<void> {
   new WebviewWindow(SETTINGS_WINDOW_LABEL, {
     url: "/settings",
     title: "Settings",
-    width: 560,
-    height: 420,
+    width: 640,
+    height: 520,
     minWidth: 400,
     minHeight: 300,
   });

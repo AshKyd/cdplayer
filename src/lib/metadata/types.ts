@@ -6,6 +6,11 @@ export interface TrackMetadata {
   artist: string;
 }
 
+/** Frees a cover's blob URL once nothing shows it any more. Remote URLs and `null` are left alone. */
+export const revokeCoverUrl = (metadata: DiscMetadata | null): void => {
+  if (metadata?.coverUrl?.startsWith("blob:")) URL.revokeObjectURL(metadata.coverUrl);
+};
+
 /** What MusicBrainz knows about a disc. */
 export interface DiscMetadata {
   discId: string;
@@ -16,6 +21,6 @@ export interface DiscMetadata {
   /** Release year, or empty if unknown. */
   year: string;
   tracks: TrackMetadata[];
-  /** A small front cover from the Cover Art Archive, or `null` if the release has none. */
+  /** The highest quality front cover from the Cover Art Archive (a blob URL when cached), or `null` if the release has none. */
   coverUrl: string | null;
 }

@@ -2,7 +2,15 @@
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { onMount } from "svelte";
   import { fade, fly, slide } from "svelte/transition";
-  import { Avatar, Button, ControlGroup, ControlItemExpanded, InfoBox, PasswordInput, TextInput } from "svelte-akui";
+  import {
+    Avatar,
+    Button,
+    ControlGroup,
+    ControlItemExpanded,
+    InfoBox,
+    PasswordInput,
+    TextInput,
+  } from "svelte-akui";
   import { createDefaultLastFmClient } from "$lib/lastfm/defaultLastFmClient";
   import { settings } from "$lib/settings/settings.svelte";
   import { LastFmLogin } from "./lastFmLogin.svelte";
@@ -16,7 +24,9 @@
 
   /** The one message shown under the form. A missing key explains everything else, so it takes priority. */
   const message = $derived(
-    client.isConfigured ? lastFmLogin.error : "This build has no Last.fm API key. See devdocs/last-fm.md.",
+    client.isConfigured
+      ? lastFmLogin.error
+      : "This build has no Last.fm API key. See devdocs/last-fm.md.",
   );
 
   onMount(() => {
@@ -44,14 +54,19 @@
         : "",
   );
 
-  const lastFmProfileUrl = (username: string) => `https://www.last.fm/user/${encodeURIComponent(username)}`;
+  const lastFmProfileUrl = (username: string) =>
+    `https://www.last.fm/user/${encodeURIComponent(username)}`;
 </script>
 
 <div class="section">
   <!-- Both modes sit in one grid cell, so the old one fades out as the new one slides in, without the page jumping. -->
   <div class="modes">
     {#if lastFmLogin.isLoggedIn}
-      <div class="mode" in:fly={{ y: 8, duration: 200 }} out:fade={{ duration: 120 }}>
+      <div
+        class="mode"
+        in:fly={{ y: 8, duration: 200 }}
+        out:fade={{ duration: 120 }}
+      >
         <ControlGroup role="group">
           <!-- The profile card. A webview doesn't open links itself, so clicking it hands the profile page to the system browser. -->
           <ControlItemExpanded
@@ -59,7 +74,11 @@
             label={lastFmLogin.username}
             description={profileSummary}
             wrapperRole="listitem"
-            onclick={() => void openUrl(lastFmLogin.profile?.profileUrl ?? lastFmProfileUrl(lastFmLogin.username))}
+            onclick={() =>
+              void openUrl(
+                lastFmLogin.profile?.profileUrl ??
+                  lastFmProfileUrl(lastFmLogin.username),
+              )}
           >
             {#snippet icon()}
               <Avatar
@@ -93,19 +112,29 @@
         }}
       >
         <ControlGroup role="group">
-          <ControlItemExpanded label="Username" layout="horizontal" wrapperRole="listitem">
-            <div class="field">
-              <TextInput bind:value={usernameDraft} autocomplete="username" spellcheck="false" />
-            </div>
-          </ControlItemExpanded>
           <ControlItemExpanded
-            label="Password"
-            description="Checked with Last.fm. Only a hash of it is saved, so it can't be shown again."
+            label="Username"
             layout="horizontal"
             wrapperRole="listitem"
           >
             <div class="field">
-              <PasswordInput bind:value={passwordDraft} autocomplete="current-password" />
+              <TextInput
+                bind:value={usernameDraft}
+                autocomplete="username"
+                spellcheck="false"
+              />
+            </div>
+          </ControlItemExpanded>
+          <ControlItemExpanded
+            label="Password"
+            layout="horizontal"
+            wrapperRole="listitem"
+          >
+            <div class="field">
+              <PasswordInput
+                bind:value={passwordDraft}
+                autocomplete="current-password"
+              />
             </div>
           </ControlItemExpanded>
         </ControlGroup>

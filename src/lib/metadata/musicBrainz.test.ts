@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import type { KeyValueCache } from "$lib/cache/keyValueCache";
 import type { Toc } from "$lib/disc/types";
 import { computeDiscId } from "./discId";
-import { artistCreditText, lookupDiscMetadata, parseDiscLookup, pickCoverUrl, type MetadataStorage } from "./musicBrainz";
+import { artistCreditText, lookupDiscMetadata, parseDiscLookup, pickCover } from "./musicBrainz";
 
 const toc: Toc = {
   tracks: [
@@ -29,9 +30,14 @@ const release = (discId: string) => ({
   ],
 });
 
-const memoryStorage = (): MetadataStorage & { values: Map<string, string> } => {
-  const values = new Map<string, string>();
-  return { values, getItem: (key) => values.get(key) ?? null, setItem: (key, value) => void values.set(key, value) };
+const memoryCache = (): KeyValueCache & { values: Map<string, unknown> } => {
+  const values = new Map<string, unknown>();
+  return {
+    values,
+    get: async <T>(key: string) => values.get(key) as T | undefined,
+    set: async (key, value) => void values.set(key, value),
+    delete: async (key) => void values.delete(key),
+  };
 };
 
 /** A fake `fetch` that answers by URL prefix. */
@@ -43,8 +49,22 @@ const fakeFetch = (routes: Record<string, () => Response | Promise<Response>>) =
   }) as unknown as typeof fetch & ReturnType<typeof vi.fn>;
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+const image = () => new Response(new Blob(["pixels"], { type: "image/jpeg" }));
 
-const coverIndex = { images: [{ front: false, image: "https://x/back.jpg" }, { front: true, image: "https://x/front.jpg", thumbnails: { "250": "http://x/front-250.jpg" } }] };
+const coverIndex = {
+  images: [
+    { front: false, image: "https://x/back.jpg" },
+    { front: true, image: "https://x/front.jpg", thumbnails: { "250": "http://x/front-250.jpg", "1200": "http://x/front-1200.jpg" } },
+  ],
+};
+
+/** An index whose front image has no original, only thumbnails. */
+const thumbnailOnlyIndex = { images: [{ front: true, thumbnails: { "250": "https://x/t-250.jpg", "500": "https://x/t-500.jpg" } }] };
+
+const routesFor = (discId: string, cover: Record<string, () => Response | Promise<Response>>) => ({
+  [`https://musicbrainz.org/ws/2/discid/${discId}?`]: () => json({ releases: [release(discId)] }),
+  ...cover,
+});
 
 describe("artistCreditText", () => {
   it("joins the names with their join phrases", () => {
@@ -84,99 +104,130 @@ describe("parseDiscLookup", () => {
   });
 });
 
-describe("pickCoverUrl", () => {
-  it("prefers the front image's 250 px thumbnail, over https", () => {
-    expect(pickCoverUrl(coverIndex)).toBe("https://x/front-250.jpg");
+describe("pickCover", () => {
+  it("prefers the front image's original, over https", () => {
+    expect(pickCover(coverIndex)).toEqual({ url: "https://x/front.jpg", isOriginal: true });
+    expect(pickCover({ images: [{ front: true, image: "http://x/full.jpg" }] })?.url).toBe("https://x/full.jpg");
   });
 
-  it("falls back to the full image, and is null with no images", () => {
-    expect(pickCoverUrl({ images: [{ front: true, image: "http://x/full.jpg" }] })).toBe("https://x/full.jpg");
-    expect(pickCoverUrl({ images: [] })).toBeNull();
+  it("falls back to the largest thumbnail when there is no original", () => {
+    expect(pickCover(thumbnailOnlyIndex)).toEqual({ url: "https://x/t-500.jpg", isOriginal: false });
+  });
+
+  it("is null with no usable images", () => {
+    expect(pickCover({ images: [] })).toBeNull();
+    expect(pickCover({ images: [{ front: true }] })).toBeNull();
   });
 });
 
 describe("lookupDiscMetadata", () => {
-  it("finds the disc by its ID, takes the first release and adds the cover", async () => {
+  it("finds the disc by its ID, takes the first release and adds the original cover", async () => {
     const discId = (await computeDiscId(toc))!;
-    const fetcher = fakeFetch({
-      [`https://musicbrainz.org/ws/2/discid/${discId}?`]: () => json({ releases: [release(discId)] }),
-      "https://coverartarchive.org/release/release-1": () => json(coverIndex),
-    });
+    const fetcher = fakeFetch(routesFor(discId, { "https://coverartarchive.org/release/release-1": () => json(coverIndex), "https://x/front.jpg": image }));
 
-    const metadata = await lookupDiscMetadata(toc, { fetcher, storage: null });
+    const metadata = await lookupDiscMetadata(toc, { fetcher, cache: null });
 
-    expect(metadata).toMatchObject({ discId, album: "First Album", coverUrl: "https://x/front-250.jpg" });
+    expect(metadata).toMatchObject({ discId, album: "First Album" });
+    expect(metadata.coverUrl).toMatch(/^blob:/);
     expect(metadata.tracks.map(({ title }) => title)).toEqual(["One", "Two"]);
+    expect(fetcher).toHaveBeenCalledWith("https://x/front.jpg", expect.anything());
   });
 
   it("still succeeds when the release has no cover or the cover service fails", async () => {
     const discId = (await computeDiscId(toc))!;
-    const musicBrainz = { [`https://musicbrainz.org/ws/2/discid/${discId}?`]: () => json({ releases: [release(discId)] }) };
 
-    const noCover = fakeFetch({ ...musicBrainz, "https://coverartarchive.org": () => new Response("", { status: 404 }) });
-    expect((await lookupDiscMetadata(toc, { fetcher: noCover, storage: null })).coverUrl).toBeNull();
+    const noCover = fakeFetch(routesFor(discId, { "https://coverartarchive.org": () => new Response("", { status: 404 }) }));
+    expect((await lookupDiscMetadata(toc, { fetcher: noCover, cache: null })).coverUrl).toBeNull();
 
-    const broken = fakeFetch({ ...musicBrainz, "https://coverartarchive.org": () => Promise.reject(new Error("offline")) });
-    expect((await lookupDiscMetadata(toc, { fetcher: broken, storage: null })).coverUrl).toBeNull();
+    const broken = fakeFetch(routesFor(discId, { "https://coverartarchive.org": () => Promise.reject(new Error("offline")) }));
+    expect((await lookupDiscMetadata(toc, { fetcher: broken, cache: null })).coverUrl).toBeNull();
   });
 
-  it("caches a found disc, so it is only looked up once", async () => {
+  it("uses the remote URL when the image can't be downloaded, and caches no cover", async () => {
     const discId = (await computeDiscId(toc))!;
-    const storage = memoryStorage();
-    const fetcher = fakeFetch({
-      "https://musicbrainz.org": () => json({ releases: [release(discId)] }),
-      "https://coverartarchive.org": () => json(coverIndex),
-    });
+    const cache = memoryCache();
+    const fetcher = fakeFetch(routesFor(discId, { "https://coverartarchive.org": () => json(coverIndex), "https://x/front.jpg": () => Promise.reject(new Error("cors")) }));
 
-    await lookupDiscMetadata(toc, { fetcher, storage });
-    const again = await lookupDiscMetadata(toc, { fetcher, storage });
+    const metadata = await lookupDiscMetadata(toc, { fetcher, cache });
 
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(metadata.coverUrl).toBe("https://x/front.jpg");
+    expect([...cache.values.keys()]).toEqual([expect.stringContaining("musicbrainz.disc.")]);
+  });
+
+  it("caches the metadata and cover, so a disc is only looked up once", async () => {
+    const discId = (await computeDiscId(toc))!;
+    const cache = memoryCache();
+    const fetcher = fakeFetch(routesFor(discId, { "https://coverartarchive.org/release/release-1": () => json(coverIndex), "https://x/front.jpg": image }));
+
+    await lookupDiscMetadata(toc, { fetcher, cache });
+    const again = await lookupDiscMetadata(toc, { fetcher, cache });
+
+    expect(fetcher).toHaveBeenCalledTimes(3);
     expect(again.album).toBe("First Album");
+    expect(again.coverUrl).toMatch(/^blob:/);
+    expect(cache.values.size).toBe(2);
+  });
+
+  it("replaces a cached thumbnail with the original once it is available", async () => {
+    const discId = (await computeDiscId(toc))!;
+    const cache = memoryCache();
+    const thumbnailFetcher = fakeFetch(routesFor(discId, { "https://coverartarchive.org": () => json(thumbnailOnlyIndex), "https://x/t-500.jpg": image }));
+    await lookupDiscMetadata(toc, { fetcher: thumbnailFetcher, cache });
+    expect(cache.values.get("coverart.release.release-1")).toMatchObject({ isOriginal: false });
+
+    const originalFetcher = fakeFetch({ "https://coverartarchive.org": () => json(coverIndex), "https://x/front.jpg": image });
+    await lookupDiscMetadata(toc, { fetcher: originalFetcher, cache });
+
+    expect(cache.values.get("coverart.release.release-1")).toMatchObject({ isOriginal: true, sourceUrl: "https://x/front.jpg" });
+  });
+
+  it("keeps a cached thumbnail when the archive is unreachable", async () => {
+    const discId = (await computeDiscId(toc))!;
+    const cache = memoryCache();
+    const thumbnailFetcher = fakeFetch(routesFor(discId, { "https://coverartarchive.org": () => json(thumbnailOnlyIndex), "https://x/t-500.jpg": image }));
+    await lookupDiscMetadata(toc, { fetcher: thumbnailFetcher, cache });
+
+    const offline = fakeFetch({ "https://coverartarchive.org": () => Promise.reject(new Error("offline")) });
+
+    expect((await lookupDiscMetadata(toc, { fetcher: offline, cache })).coverUrl).toMatch(/^blob:/);
   });
 
   it("says so when the disc is not on MusicBrainz, and doesn't cache that", async () => {
-    const storage = memoryStorage();
+    const cache = memoryCache();
     const fetcher = fakeFetch({ "https://musicbrainz.org": () => new Response("", { status: 404 }) });
 
-    await expect(lookupDiscMetadata(toc, { fetcher, storage })).rejects.toThrow("not on MusicBrainz");
-    expect(storage.values.size).toBe(0);
+    await expect(lookupDiscMetadata(toc, { fetcher, cache })).rejects.toThrow("not on MusicBrainz");
+    expect(cache.values.size).toBe(0);
   });
 
   it("explains a busy MusicBrainz, other errors, and a network failure", async () => {
     const busy = fakeFetch({ "https://musicbrainz.org": () => new Response("", { status: 503 }) });
-    await expect(lookupDiscMetadata(toc, { fetcher: busy, storage: null })).rejects.toThrow("busy");
+    await expect(lookupDiscMetadata(toc, { fetcher: busy, cache: null })).rejects.toThrow("busy");
 
     const broken = fakeFetch({ "https://musicbrainz.org": () => new Response("", { status: 500 }) });
-    await expect(lookupDiscMetadata(toc, { fetcher: broken, storage: null })).rejects.toThrow("answered 500");
+    await expect(lookupDiscMetadata(toc, { fetcher: broken, cache: null })).rejects.toThrow("answered 500");
 
     const offline = fakeFetch({ "https://musicbrainz.org": () => Promise.reject(new Error("offline")) });
-    await expect(lookupDiscMetadata(toc, { fetcher: offline, storage: null })).rejects.toThrow("could not be reached: offline");
+    await expect(lookupDiscMetadata(toc, { fetcher: offline, cache: null })).rejects.toThrow("could not be reached: offline");
   });
 
   it("fails without a request when the disc has no audio", async () => {
     const fetcher = fakeFetch({});
     const dataOnly: Toc = { tracks: [{ number: 1, first_sector: 0, last_sector: 9, is_audio: false }], leadout_sector: 10 };
 
-    await expect(lookupDiscMetadata(dataOnly, { fetcher, storage: null })).rejects.toThrow("no audio");
+    await expect(lookupDiscMetadata(dataOnly, { fetcher, cache: null })).rejects.toThrow("no audio");
     expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it("carries on when storage throws", async () => {
+  it("carries on when the cache throws", async () => {
     const discId = (await computeDiscId(toc))!;
-    const storage: MetadataStorage = {
-      getItem: () => {
-        throw new Error("blocked");
-      },
-      setItem: () => {
-        throw new Error("full");
-      },
+    const cache: KeyValueCache = {
+      get: () => Promise.reject(new Error("blocked")),
+      set: () => Promise.reject(new Error("full")),
+      delete: () => Promise.reject(new Error("blocked")),
     };
-    const fetcher = fakeFetch({
-      "https://musicbrainz.org": () => json({ releases: [release(discId)] }),
-      "https://coverartarchive.org": () => json(coverIndex),
-    });
+    const fetcher = fakeFetch(routesFor(discId, { "https://coverartarchive.org": () => json(coverIndex), "https://x/front.jpg": image }));
 
-    expect((await lookupDiscMetadata(toc, { fetcher, storage })).album).toBe("First Album");
+    expect((await lookupDiscMetadata(toc, { fetcher, cache })).album).toBe("First Album");
   });
 });

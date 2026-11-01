@@ -1,16 +1,15 @@
 <script lang="ts">
   import { openUrl } from "@tauri-apps/plugin-opener";
-  import { ControlGroup, ControlItemExpanded, Select, Settings, type SettingsSection } from "svelte-akui";
+  import { ControlGroup, ControlItemExpanded, Settings, type SettingsSection } from "svelte-akui";
   import LastFmSettings from "$lib/components/LastFmSettings/LastFmSettings.svelte";
+  import VisualiserSettings from "$lib/components/VisualiserSettings/VisualiserSettings.svelte";
   import { settings } from "$lib/settings/settings.svelte";
-  import { isVisualiserId, VISUALISERS } from "$lib/visualisers/visualiserCatalogue";
-
-  const visualiserOptions = VISUALISERS.map(({ id, label }) => ({ value: id, label }));
 
   const MUSICBRAINZ_URL = "https://musicbrainz.org";
 
   const sections: SettingsSection[] = [
     { id: "general", label: "General", icon: "gear", children: general },
+    { id: "visualisations", label: "Visualisations", icon: "soundwave", children: visualisations },
     { id: "lastfm", label: "Last.fm", icon: "music-note-list", children: lastFm },
   ];
 </script>
@@ -54,35 +53,16 @@
       wrapperRole="listitem"
       bind:checked={settings.fadeEnabled}
     />
-    <ControlItemExpanded
-      label="Show the visualiser"
-      description="Draws the waveform of the music behind the player."
-      layout="horizontal"
-      controlType="checkbox"
-      wrapperRole="listitem"
-      bind:checked={settings.visualiserEnabled}
-    />
-    <ControlItemExpanded
-      label="Visualiser"
-      description={VISUALISERS.find(({ id }) => id === settings.visualiserId)?.description}
-      layout="horizontal"
-      wrapperRole="listitem"
-    >
-      <Select
-        value={settings.visualiserId}
-        options={visualiserOptions}
-        onchange={(event: Event) => {
-          const { value } = event.target as HTMLSelectElement;
-          if (isVisualiserId(value)) settings.visualiserId = value;
-        }}
-      />
-    </ControlItemExpanded>
   </ControlGroup>
+{/snippet}
+
+{#snippet visualisations()}
+  <VisualiserSettings />
 {/snippet}
 
 {#snippet lastFm()}
   <LastFmSettings />
 {/snippet}
 
-<!-- The window opens at 560 px: wide enough for the tab column, so only the narrowest sizes use the drill-down layout. -->
+<!-- The window opens at 640 px: wide enough for the tab column, so only the narrowest sizes use the drill-down layout. -->
 <Settings {sections} title="Settings" size="large" padding="m" mobileBreakpoint={480} />

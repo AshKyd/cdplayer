@@ -2,7 +2,7 @@ import { cdTrackBaseUrl } from "$lib/disc/cdTrackUrl";
 import { DiscWatcher } from "$lib/disc/DiscWatcher.svelte";
 import { SECTORS_PER_SECOND, type Toc, type Track } from "$lib/disc/types";
 import { lookupDiscMetadata } from "$lib/metadata/musicBrainz";
-import type { DiscMetadata } from "$lib/metadata/types";
+import { revokeCoverUrl, type DiscMetadata } from "$lib/metadata/types";
 import { settings } from "$lib/settings/settings.svelte";
 import {
   chunkUrl,
@@ -363,6 +363,7 @@ export class CDPlayer {
   #handleDiscChange(toc: Toc | null): void {
     this.#teardownPlayback();
     const token = ++this.#discToken;
+    revokeCoverUrl(this.metadata);
     this.metadata = null;
     this.metadataError = "";
     this.error = "";
@@ -392,7 +393,11 @@ export class CDPlayer {
       (metadata) => ({ metadata, error: "" }),
       (reason) => ({ metadata: null, error: reason instanceof Error ? reason.message : String(reason) }),
     );
-    if (token !== this.#discToken) return;
+    if (token !== this.#discToken) {
+      // The disc changed while looking up, so nothing will ever show this cover.
+      revokeCoverUrl(result.metadata);
+      return;
+    }
 
     this.metadata = result.metadata;
     this.metadataError = result.error;
