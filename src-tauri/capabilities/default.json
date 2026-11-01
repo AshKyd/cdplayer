@@ -6,8 +6,6 @@
   "permissions": [
     "core:default",
     "core:webview:allow-create-webview-window",
-    "core:window:allow-set-focus",
-    "core:window:allow-set-theme",
-    "opener:default"
+    "core:window:allow-set-focus",    "opener:default"
   ]
 }

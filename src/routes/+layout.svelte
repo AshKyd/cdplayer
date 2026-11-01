@@ -1,18 +1,13 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { UIRoot } from "svelte-akui";
-  import { syncWindowTheme } from "$lib/theme/syncWindowTheme";
+  import NativeWindowTheme from "$lib/components/NativeWindowTheme/NativeWindowTheme.svelte";
 
   let { children }: { children: Snippet } = $props();
-
-  /** The scheme akui is showing, after resolving the user's pick and the OS setting. */
-  let resolvedMode = $state<"light" | "dark">("light");
-
-  // Keeps the native titlebar in step with the app, including when the user overrides the OS scheme.
-  $effect(() => void syncWindowTheme(resolvedMode));
 </script>
 
-<UIRoot bind:resolvedMode>
+<UIRoot>
+  <NativeWindowTheme />
   {@render children()}
 </UIRoot>
 

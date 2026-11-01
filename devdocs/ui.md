@@ -4,7 +4,7 @@ The player window, built with [svelte-akui](https://github.com/ashkyd/svelte-aku
 
 ## Files
 
-- `src/routes/+layout.svelte`: wraps the app in `UIRoot` (theme, base font) and sets `color-scheme`. It also binds `UIRoot`'s `resolvedMode` and calls `syncWindowTheme` (`src/lib/theme/syncWindowTheme.ts`), which sets the native titlebar to the same scheme through the window's `setTheme` (needs the `core:window:allow-set-theme` permission). Without this the titlebar follows the OS even when the user picks another theme in the app.
+- `src/routes/+layout.svelte`: wraps the app in `UIRoot` (theme, base font) and sets `color-scheme`. It also renders `NativeWindowTheme` (`src/lib/components/NativeWindowTheme`), which sets `color-scheme` on `<html>` from the theme store: the picked theme's scheme, or `light dark` under "System". The macOS titlebar is drawn from the webview's `color-scheme`; the window API's `setTheme` does not change it.
 - `src/routes/+page.svelte`: makes the `CDPlayer`, starts it on mount and destroys it on unmount, and chooses what to show for each `status`.
 - `src/lib/components/NowPlaying/`: renderless; feeds the OS media controls ([now-playing.md](now-playing.md)).
 - The top bar has a gear button that opens the settings window (`src/routes/settings/+page.svelte`; see [settings.md](settings.md)).
