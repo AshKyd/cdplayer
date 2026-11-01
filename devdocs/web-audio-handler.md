@@ -21,6 +21,7 @@ Schedules PCM segments back to back on the Web Audio clock. It knows nothing abo
 - The `AudioContext` is created lazily at 44100 Hz, so the browser does not resample.
 - Each segment starts at `baseTime + scheduledFrames / sampleRate`. Frames are counted as integers, never by summing `buffer.duration`.
 - If playback catches up with the schedule (underrun), the next segment re-anchors `baseTime`. `playedSeconds` stays continuous.
+- Because it only counts frames, segments from different tracks or sources join with no gap. Track boundaries are the caller's business: `playedSeconds` is one timeline across everything appended.
 - Each source is removed from the handler when it ends, so memory stays flat.
 
 ## Limits

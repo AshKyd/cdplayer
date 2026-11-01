@@ -71,6 +71,11 @@
       {/if}
     </span>
   </section>
+  <section class="transport">
+    <span>Up next: {player.queue.slice(1).map(({ number }) => number).join(", ") || "none"}</span>
+    <button onclick={() => player.next()} disabled={player.queue.length < 2}>Next</button>
+    <button onclick={() => player.clearQueue()} disabled={player.queue.length < 2}>Clear queue</button>
+  </section>
   {#if player.error}
     <p class="error">{player.error}</p>
   {/if}
@@ -84,6 +89,7 @@
           <span>Track {track.number} · {formatDuration(track)}{track.is_audio ? "" : " (data)"}</span>
           {#if track.is_audio}
             <button onclick={() => player.play(track, startAtSeconds || 0)}>Play</button>
+            <button onclick={() => player.enqueue(track)}>Queue</button>
             <button onclick={() => testChunk(track)}>Test read</button>
           {/if}
           <small>{chunkResults[track.number] ?? ""}</small>

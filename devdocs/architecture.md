@@ -79,7 +79,7 @@ Because CD tracks are split precisely on sample boundaries and every chunk is pl
 * Create the custom Tauri protocol to serve a sector range as raw PCM (e.g. `cd-track://localhost/track/1?start=0&count=375`), read on a dedicated thread at max drive speed.
 
 ### Phase 2: Web Audio Engine
-*Started: single-track play, stop and pause/resume work (`CDPlayer`, `WebAudioHandler`). Next-track lead-in, gapless across tracks and seek are not done.*
+*Started: queued gapless playback, stop and pause/resume work (`CDPlayer`, `WebAudioHandler`). Seek is not done (a seek restarts with `play(track, time)`), and `next()` is not gapless.*
 * Build the `CDPlayer` class (`CDPlayer.svelte.ts`, Svelte 5 runes) and `WebAudioHandler`, and initialize the `AudioContext` at 44100 Hz.
 * Write the logic to fetch a chunk, convert Int16 to Float32 and fill an `AudioBuffer`.
 * Implement the sample-count scheduler with a ~30 s rolling lead, including seek, skip and pause/resume.

@@ -1,5 +1,12 @@
 import { SECTORS_PER_SECOND, type Track } from "$lib/disc/types";
-import { chunkUrl, nextChunkSectorCount, startSectorForTime, trackSectorCount } from "./chunks";
+import {
+  chunkUrl,
+  currentSpanIndex,
+  nextChunkSectorCount,
+  startSectorForTime,
+  trackSectorCount,
+  type TrackSpan,
+} from "./chunks";
 import { WebAudioHandler } from "./WebAudioHandler";
 
 export type PlayerStatus = "idle" | "loading" | "playing" | "paused";
@@ -15,55 +22,81 @@ const LEAD_CHECK_INTERVAL_MS = 250;
 const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 /**
- * Plays one CD track: reads sector chunks through the `cd-track` protocol and hands the PCM to a
+ * Plays a queue of CD tracks: reads sector chunks through the `cd-track` protocol and hands the PCM to a
  * `WebAudioHandler`. Holds playback state for the UI. Audio scheduling lives in the handler so other
  * sources (e.g. MP3 CDs) can reuse it.
+ *
+ * Gapless: the handler joins segments by frame count and doesn't care which track they came from, so the
+ * next track is simply fetched into the same stream while the lead is still ~30 s ahead. The handler's
+ * timeline runs across all tracks, so this class keeps a `TrackSpan` per track to translate it back into
+ * "which track, how far in".
  */
 export class CDPlayer {
   status = $state<PlayerStatus>("idle");
   trackNumber = $state<number | null>(null);
-  /** Seconds into the track. */
+  /** Seconds into the current track. */
   positionSeconds = $state(0);
   error = $state("");
+  /**
+   * The playing track first, then those after it. Tracks near the front may already be fetched
+   * (buffered ahead for gapless playback) and can't be removed.
+   */
+  queue = $state<Track[]>([]);
 
   #handler = new WebAudioHandler();
   /** Bumped by every `play()`/`stop()`; an older run sees the change and abandons its work. */
   #runId = 0;
-  /** True once the last chunk of the track has been scheduled. */
-  #allChunksScheduled = false;
-  #startOffsetSeconds = 0;
+  /** Timeline position of each fetched track. `#spans[i]` belongs to `queue[i]`. */
+  #spans: TrackSpan[] = [];
+  /** Index in `queue` of the track being fetched (or the next to fetch). */
+  #fetchIndex = 0;
+  /** True while the fetch loop has tracks left to read. */
+  #fetching = false;
+  /** Seconds of audio scheduled so far on the handler's timeline. */
+  #scheduledSeconds = 0;
 
   constructor() {
-    // Segments can run dry mid-track on a slow read, so only treat it as the end once everything is fetched.
+    // Segments can run dry mid-queue on a slow read, so only treat it as the end once everything is fetched.
     this.#handler.onEnded = () => {
-      if (this.#allChunksScheduled) this.#finish();
+      if (!this.#fetching) this.stop();
     };
   }
 
   /** Stops whatever is playing, then plays `track` from `timeSeconds`. */
-  async play(track: Track, timeSeconds = 0): Promise<void> {
-    this.stop();
-    const runId = this.#runId;
-    const startSector = startSectorForTime(track, timeSeconds);
+  play(track: Track, timeSeconds = 0): Promise<void> {
+    return this.#start([track], timeSeconds);
+  }
 
-    this.error = "";
-    this.trackNumber = track.number;
-    this.#startOffsetSeconds = startSector / SECTORS_PER_SECOND;
-    this.positionSeconds = this.#startOffsetSeconds;
-    this.status = "loading";
-    this.#trackPosition(runId);
+  /** Adds an audio track to the end of the queue, or starts it if nothing is playing. */
+  enqueue(track: Track): void {
+    if (!track.is_audio) return;
+    if (this.status === "idle") {
+      void this.play(track);
+      return;
+    }
+    this.queue.push(track);
+    if (!this.#fetching) void this.#pump(this.#runId);
+  }
 
-    await this.#fetchChunks(track, startSector, runId).catch((reason) => {
-      if (runId !== this.#runId) return;
-      this.error = String(reason);
-      this.stop();
-    });
+  /** Drops tracks that haven't been fetched yet. Anything already buffered still plays. */
+  clearQueue(): void {
+    this.queue.splice(this.#fetchIndex + 1);
+  }
+
+  /** Skips to the next queued track. Not gapless: it flushes the buffer and restarts. */
+  next(): Promise<void> {
+    const [, ...upcoming] = this.queue;
+    return upcoming.length > 0 ? this.#start(upcoming, 0) : Promise.resolve(this.stop());
   }
 
   stop(): void {
     this.#runId++;
     this.#handler.stop();
-    this.#allChunksScheduled = false;
+    this.#spans = [];
+    this.#fetchIndex = 0;
+    this.#fetching = false;
+    this.#scheduledSeconds = 0;
+    this.queue = [];
     this.status = "idle";
     this.trackNumber = null;
     this.positionSeconds = 0;
@@ -85,19 +118,50 @@ export class CDPlayer {
     return this.status === "paused" ? this.resume() : this.pause();
   }
 
-  #finish(): void {
-    this.#runId++;
-    this.status = "idle";
-    this.trackNumber = null;
-    this.positionSeconds = 0;
-    this.#allChunksScheduled = false;
+  #start(tracks: Track[], timeSeconds: number): Promise<void> {
+    this.stop();
+    const [first] = tracks;
+    if (!first) return Promise.resolve();
+
+    const runId = this.#runId;
+    const startSector = startSectorForTime(first, timeSeconds);
+    this.error = "";
+    this.queue = tracks;
+    this.trackNumber = first.number;
+    this.positionSeconds = startSector / SECTORS_PER_SECOND;
+    this.status = "loading";
+    this.#trackPosition(runId);
+    return this.#pump(runId, startSector);
   }
 
-  /** Reads chunks in order and schedules them, topping the lead up to `TARGET_LEAD_SECONDS`. */
-  async #fetchChunks(track: Track, startSector: number, runId: number): Promise<void> {
+  /** Fetches every queued track in order, picking up tracks added while it runs. Reports failures in `error`. */
+  #pump(runId: number, firstStartSector = 0): Promise<void> {
+    return this.#fetchQueue(runId, firstStartSector).catch((reason) => {
+      if (runId !== this.#runId) return;
+      this.error = String(reason);
+      this.stop();
+    });
+  }
+
+  async #fetchQueue(runId: number, firstStartSector: number): Promise<void> {
+    this.#fetching = true;
+    let startSector = firstStartSector;
+
+    while (runId === this.#runId && this.queue[this.#fetchIndex]) {
+      await this.#fetchTrack(this.queue[this.#fetchIndex], startSector, runId);
+      if (runId !== this.#runId) return;
+      this.#fetchIndex++;
+      startSector = 0;
+    }
+    this.#fetching = false;
+  }
+
+  /** Reads one track's chunks and schedules them, topping the lead up to `TARGET_LEAD_SECONDS`. */
+  async #fetchTrack(track: Track, startSector: number, runId: number): Promise<void> {
     const totalSectors = trackSectorCount(track);
     let cursorSector = startSector;
-    let isFirstChunk = true;
+    // Only the very first chunk of a run is short; later tracks already have a lead to hide a slow read.
+    let isFirstChunk = this.#spans.length === 0;
 
     while (cursorSector < totalSectors) {
       // Wait while the lead is full, or paused (the lead isn't shrinking then).
@@ -115,24 +179,46 @@ export class CDPlayer {
       const sectorsRead = Math.floor(body.byteLength / SECTOR_BYTES);
       if (sectorsRead === 0) throw new Error("drive returned no audio");
 
+      // Record where this track starts on the timeline before its first chunk is scheduled.
+      if (cursorSector === startSector) {
+        this.#spans.push({
+          trackNumber: track.number,
+          startSeconds: this.#scheduledSeconds,
+          offsetSeconds: startSector / SECTORS_PER_SECOND,
+        });
+      }
       this.#handler.appendSegment(body);
+      this.#scheduledSeconds += sectorsRead / SECTORS_PER_SECOND;
       cursorSector += sectorsRead;
-      if (isFirstChunk) this.status = "playing";
+      if (this.status === "loading") this.status = "playing";
       isFirstChunk = false;
     }
-
-    this.#allChunksScheduled = true;
   }
 
-  /** Updates `positionSeconds` each frame for the life of this run. */
+  /** Updates the current track and `positionSeconds` each frame for the life of this run. */
   #trackPosition(runId: number): void {
     const tick = () => {
       if (runId !== this.#runId) return;
-      if (this.status === "playing") {
-        this.positionSeconds = this.#startOffsetSeconds + this.#handler.playedSeconds;
-      }
+      if (this.status === "playing") this.#syncPosition();
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
+  }
+
+  #syncPosition(): void {
+    const timelineSeconds = this.#handler.playedSeconds;
+
+    // Drop tracks that have finished playing so `queue[0]` is always the current one.
+    const finishedCount = currentSpanIndex(this.#spans, timelineSeconds);
+    if (finishedCount > 0) {
+      this.#spans.splice(0, finishedCount);
+      this.queue.splice(0, finishedCount);
+      this.#fetchIndex -= finishedCount;
+    }
+
+    const [span] = this.#spans;
+    if (!span) return;
+    this.trackNumber = span.trackNumber;
+    this.positionSeconds = timelineSeconds - span.startSeconds + span.offsetSeconds;
   }
 }

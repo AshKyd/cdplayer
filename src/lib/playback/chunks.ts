@@ -13,5 +13,18 @@ export const startSectorForTime = (track: Track, timeSeconds: number) =>
 export const nextChunkSectorCount = (track: Track, cursorSector: number, isFirstChunk: boolean) =>
   Math.min(isFirstChunk ? FIRST_CHUNK_SECTORS : MAX_CHUNK_SECTORS, trackSectorCount(track) - cursorSector);
 
+/** One queued track's place on the `WebAudioHandler` timeline, which runs continuously across tracks. */
+export interface TrackSpan {
+  trackNumber: number;
+  /** Timeline second at which this track's first scheduled sample plays. */
+  startSeconds: number;
+  /** Seconds into the track that the first scheduled sample is (non-zero when playback started mid-track). */
+  offsetSeconds: number;
+}
+
+/** Index of the span playing at `timelineSeconds`: the last span that has started (0 before the first). */
+export const currentSpanIndex = (spans: TrackSpan[], timelineSeconds: number) =>
+  Math.max(0, spans.findLastIndex(({ startSeconds }) => startSeconds <= timelineSeconds));
+
 export const chunkUrl = (trackNumber: number, startSector: number, sectorCount: number) =>
   `cd-track://localhost/track/${trackNumber}?start=${startSector}&count=${sectorCount}`;
