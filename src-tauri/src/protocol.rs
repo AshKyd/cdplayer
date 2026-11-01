@@ -1,8 +1,11 @@
 //! `cd-track://localhost/track/{n}?start={sector}&count={sectors}` serves raw PCM chunks.
 //! `start` is relative to the track's first sector. The response is headerless 16-bit/44.1kHz stereo.
 
-use crate::disc::{MAX_CHUNK_SECTORS, Toc, reader::DiscHandle};
+use crate::disc::{MAX_CHUNK_SECTORS, ReadOutcome, Toc, reader::DiscHandle};
 use tauri::http::{Response, StatusCode};
+
+/// Response header with the number of sectors in the chunk that could not be read (sent as silence).
+const UNREADABLE_SECTORS_HEADER: &str = "X-Unreadable-Sectors";
 
 #[derive(Debug, PartialEq)]
 struct ChunkRequest {
@@ -71,10 +74,13 @@ pub fn respond(disc: &Result<DiscHandle, String>, path: &str, query: Option<&str
     };
 
     match disc.read_sectors(start_sector, sector_count) {
-        Ok(pcm) => Response::builder()
+        // Unreadable sectors are already silence in `pcm`; the count lets the frontend tell the user.
+        Ok(ReadOutcome { pcm, unreadable_sectors }) => Response::builder()
             .status(StatusCode::OK)
             .header("Content-Type", "application/octet-stream")
             .header("Access-Control-Allow-Origin", "*")
+            .header("Access-Control-Expose-Headers", UNREADABLE_SECTORS_HEADER)
+            .header(UNREADABLE_SECTORS_HEADER, unreadable_sectors.to_string())
             .body(pcm)
             .expect("static response is valid"),
         Err(message) => text_response(StatusCode::INTERNAL_SERVER_ERROR, &message),
@@ -84,7 +90,7 @@ pub fn respond(disc: &Result<DiscHandle, String>, path: &str, query: Option<&str
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::disc::Track;
+    use crate::disc::{SECTOR_BYTES, Track, fake::FakeDisc, reader::spawn_reader_with};
 
     fn toc() -> Toc {
         Toc {
@@ -128,6 +134,64 @@ mod tests {
 
         let near_end = ChunkRequest { track_number: 2, start_sector: 90, sector_count: 375 };
         assert_eq!(resolve_range(&toc(), &near_end), Some((1090, 10)));
+    }
+
+    fn fake_disc(bad_sectors: Vec<i32>) -> Result<DiscHandle, String> {
+        spawn_reader_with(move || Ok((FakeDisc::new(bad_sectors), FakeDisc::toc())))
+    }
+
+    fn header<'a>(response: &'a Response<Vec<u8>>, name: &str) -> Option<&'a str> {
+        response.headers().get(name).and_then(|value| value.to_str().ok())
+    }
+
+    #[test]
+    fn serves_a_clean_chunk() {
+        let response = respond(&fake_disc(vec![]), "/track/2", Some("start=0&count=10"));
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.body().len(), 10 * SECTOR_BYTES);
+        assert_eq!(response.body()[0], FakeDisc::byte_for(1000));
+        assert_eq!(header(&response, UNREADABLE_SECTORS_HEADER), Some("0"));
+        assert_eq!(header(&response, "Content-Type"), Some("application/octet-stream"));
+        assert_eq!(header(&response, "Access-Control-Expose-Headers"), Some(UNREADABLE_SECTORS_HEADER));
+    }
+
+    #[test]
+    fn reports_unreadable_sectors_and_sends_them_as_silence() {
+        let response = respond(&fake_disc(vec![1003]), "/track/2", Some("start=0&count=10"));
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(header(&response, UNREADABLE_SECTORS_HEADER), Some("1"));
+
+        let sector = |index: usize| &response.body()[index * SECTOR_BYTES..(index + 1) * SECTOR_BYTES];
+        assert!(sector(2).iter().all(|byte| *byte == FakeDisc::byte_for(1002)));
+        assert!(sector(3).iter().all(|byte| *byte == 0));
+        assert!(sector(4).iter().all(|byte| *byte == FakeDisc::byte_for(1004)));
+    }
+
+    #[test]
+    fn fails_with_500_when_nothing_in_the_chunk_is_readable() {
+        let response = respond(&fake_disc(vec![1000]), "/track/2", Some("start=0&count=1"));
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(response.body().as_slice(), b"read error");
+    }
+
+    #[test]
+    fn fails_with_500_when_far_too_many_sectors_are_unreadable() {
+        // Every other sector is bad: the disc is effectively gone, so don't play silence.
+        let bad_sectors = (0..375).step_by(2).collect();
+        let response = respond(&fake_disc(bad_sectors), "/track/1", Some("start=0&count=375"));
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[test]
+    fn answers_503_without_a_disc_and_4xx_for_bad_requests() {
+        let no_disc: Result<DiscHandle, String> = Err("no usable audio CD drive found".to_string());
+        let response = respond(&no_disc, "/track/1", None);
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(response.body().as_slice(), b"no usable audio CD drive found");
+
+        assert_eq!(respond(&fake_disc(vec![]), "/nope", None).status(), StatusCode::BAD_REQUEST);
+        assert_eq!(respond(&fake_disc(vec![]), "/track/3", None).status(), StatusCode::NOT_FOUND);
+        assert_eq!(respond(&fake_disc(vec![]), "/track/9", None).status(), StatusCode::NOT_FOUND);
     }
 
     #[test]

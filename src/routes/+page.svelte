@@ -76,6 +76,12 @@
     <button onclick={() => player.next()} disabled={player.queue.length < 2}>Next</button>
     <button onclick={() => player.clearQueue()} disabled={player.queue.length < 2}>Clear queue</button>
   </section>
+  {#if player.unreadableSectors > 0}
+    <p class="warning">
+      {player.unreadableSectors} unreadable sector{player.unreadableSectors === 1 ? "" : "s"} played as silence
+      (the disc may be scratched or dirty)
+    </p>
+  {/if}
   {#if player.error}
     <p class="error">{player.error}</p>
   {/if}
@@ -119,6 +125,10 @@
     gap: 0.75rem;
     align-items: center;
     margin-block: 0.25rem;
+  }
+
+  .warning {
+    color: #b9770e;
   }
 
   .error {

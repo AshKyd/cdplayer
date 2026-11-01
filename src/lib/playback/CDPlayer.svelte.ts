@@ -19,6 +19,9 @@ const TARGET_LEAD_SECONDS = 30;
 
 const LEAD_CHECK_INTERVAL_MS = 250;
 
+/** Response header from the `cd-track` protocol: sectors in the chunk that were unreadable. */
+const UNREADABLE_SECTORS_HEADER = "X-Unreadable-Sectors";
+
 const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 /**
@@ -37,6 +40,8 @@ export class CDPlayer {
   /** Seconds into the current track. */
   positionSeconds = $state(0);
   error = $state("");
+  /** Sectors in this run the drive couldn't read; they were played as silence (75 sectors = 1 s). */
+  unreadableSectors = $state(0);
   /**
    * The playing track first, then those after it. Tracks near the front may already be fetched
    * (buffered ahead for gapless playback) and can't be removed.
@@ -126,6 +131,7 @@ export class CDPlayer {
     const runId = this.#runId;
     const startSector = startSectorForTime(first, timeSeconds);
     this.error = "";
+    this.unreadableSectors = 0;
     this.queue = tracks;
     this.trackNumber = first.number;
     this.positionSeconds = startSector / SECTORS_PER_SECOND;
@@ -178,6 +184,8 @@ export class CDPlayer {
 
       const sectorsRead = Math.floor(body.byteLength / SECTOR_BYTES);
       if (sectorsRead === 0) throw new Error("drive returned no audio");
+      // The bridge has already swapped sectors it couldn't read for silence, so playback carries on.
+      this.unreadableSectors += Number(response.headers.get(UNREADABLE_SECTORS_HEADER)) || 0;
 
       // Record where this track starts on the timeline before its first chunk is scheduled.
       if (cursorSector === startSector) {

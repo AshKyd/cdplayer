@@ -108,3 +108,6 @@ Because CD tracks are split precisely on sample boundaries and every chunk is pl
 4. **Memory Footprint:**
    * *Issue:* A full 80-minute disc is about 846 MB as PCM, and about 1.7 GB as Float32.
    * *Solution:* Never hold whole tracks. The rolling ~30 s lead keeps memory at about 10 MB regardless of track length.
+5. **Queue Edits After Buffering:**
+   * *Issue:* The next track is buffered up to ~30 s ahead, and scheduled Web Audio cannot be unscheduled. `clearQueue()` cannot remove a buffered track, and `next()` has to flush and restart, so it is not gapless.
+   * *Solution:* Accepted for now. See [cd-player.md](cd-player.md) for details and the possible fix (flush and restart the current track).
