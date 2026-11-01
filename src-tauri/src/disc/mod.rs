@@ -22,7 +22,7 @@ const SESSION_GAP_SECTORS: u32 = 11_400;
 /// Drive speed multiplier requested so reads run well ahead of real time (a request only; drives may ignore it).
 const REQUESTED_READ_SPEED: u8 = 52;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Track {
     pub number: u8,
     pub first_sector: i32,
@@ -30,7 +30,7 @@ pub struct Track {
     pub is_audio: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Toc {
     pub tracks: Vec<Track>,
     pub leadout_sector: i32,

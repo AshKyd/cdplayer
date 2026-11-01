@@ -61,15 +61,15 @@ fn text_response(status: StatusCode, message: &str) -> Response<Vec<u8>> {
 }
 
 /// Builds the response for one protocol request. Blocks on the drive, so call off the main thread.
-pub fn respond(disc: &Result<DiscHandle, String>, path: &str, query: Option<&str>) -> Response<Vec<u8>> {
-    let disc = match disc {
-        Ok(disc) => disc,
-        Err(message) => return text_response(StatusCode::SERVICE_UNAVAILABLE, message),
+pub fn respond(disc: &DiscHandle, path: &str, query: Option<&str>) -> Response<Vec<u8>> {
+    let toc = match disc.current_toc() {
+        Ok(toc) => toc,
+        Err(message) => return text_response(StatusCode::SERVICE_UNAVAILABLE, &message),
     };
     let Some(request) = parse_chunk_request(path, query) else {
         return text_response(StatusCode::BAD_REQUEST, "expected /track/{n}?start={sector}&count={sectors}");
     };
-    let Some((start_sector, sector_count)) = resolve_range(&disc.toc, &request) else {
+    let Some((start_sector, sector_count)) = resolve_range(&toc, &request) else {
         return text_response(StatusCode::NOT_FOUND, "no such audio track or range");
     };
 
@@ -90,7 +90,12 @@ pub fn respond(disc: &Result<DiscHandle, String>, path: &str, query: Option<&str
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::disc::{SECTOR_BYTES, Track, fake::FakeDisc, reader::spawn_reader_with};
+    use crate::disc::{
+        SECTOR_BYTES, Track,
+        fake::{FakeDisc, FakeDrive},
+        reader::spawn_reader_with,
+    };
+    use std::time::Duration;
 
     fn toc() -> Toc {
         Toc {
@@ -136,8 +141,13 @@ mod tests {
         assert_eq!(resolve_range(&toc(), &near_end), Some((1090, 10)));
     }
 
-    fn fake_disc(bad_sectors: Vec<i32>) -> Result<DiscHandle, String> {
-        spawn_reader_with(move || Ok((FakeDisc::new(bad_sectors), FakeDisc::toc())))
+    fn reader_for(drive: &FakeDrive) -> DiscHandle {
+        let drive = drive.clone();
+        spawn_reader_with(move || drive.open(), Duration::from_secs(1)).expect("reader starts")
+    }
+
+    fn fake_disc(bad_sectors: Vec<i32>) -> DiscHandle {
+        reader_for(&FakeDrive::with_disc(bad_sectors))
     }
 
     fn header<'a>(response: &'a Response<Vec<u8>>, name: &str) -> Option<&'a str> {
@@ -184,14 +194,31 @@ mod tests {
 
     #[test]
     fn answers_503_without_a_disc_and_4xx_for_bad_requests() {
-        let no_disc: Result<DiscHandle, String> = Err("no usable audio CD drive found".to_string());
+        let no_disc = reader_for(&FakeDrive::empty());
         let response = respond(&no_disc, "/track/1", None);
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(response.body().as_slice(), b"no usable audio CD drive found");
+        assert_eq!(response.body().as_slice(), b"no disc");
 
         assert_eq!(respond(&fake_disc(vec![]), "/nope", None).status(), StatusCode::BAD_REQUEST);
         assert_eq!(respond(&fake_disc(vec![]), "/track/3", None).status(), StatusCode::NOT_FOUND);
         assert_eq!(respond(&fake_disc(vec![]), "/track/9", None).status(), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn answers_503_after_the_disc_is_ejected_and_serves_again_when_one_returns() {
+        let drive = FakeDrive::with_disc(vec![]);
+        let handle = reader_for(&drive);
+        assert_eq!(respond(&handle, "/track/1", Some("count=1")).status(), StatusCode::OK);
+
+        drive.eject();
+        assert!(handle.reload().is_err());
+        let response = respond(&handle, "/track/1", Some("count=1"));
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(response.body().as_slice(), b"no disc");
+
+        drive.insert(FakeDisc::toc(), vec![]);
+        assert!(handle.reload().is_ok());
+        assert_eq!(respond(&handle, "/track/1", Some("count=1")).status(), StatusCode::OK);
     }
 
     #[test]

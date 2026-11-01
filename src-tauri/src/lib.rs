@@ -10,7 +10,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            app.manage(DiscState(disc::reader::spawn_reader()));
+            app.manage(DiscState(disc::reader::spawn_reader()?));
             Ok(())
         })
         // Each request blocks on the drive, so it's answered from its own thread.

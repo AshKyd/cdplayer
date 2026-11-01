@@ -41,7 +41,7 @@ Plays a queue of CD tracks gaplessly and holds the playback state for the UI. It
 - Reading around damage can be slow, so the buffer may run dry near a scratch.
 - Unreadable sectors are silent, not interpolated, so a click or dropout is audible. Damage the drive reports as read fine is not detected.
 - PCM conversion runs on the main thread. If it causes jank, move it to a Web Worker.
-- The disc is read once at startup. The page's "Reload disc" button calls `get_toc` again but does not detect a changed disc (see [cd-bridge.md](cd-bridge.md)).
+- Disc changes are found by the page's [DiscWatcher](disc-watcher.md), which calls `stop()` when the disc changes. `CDPlayer` itself does not know about discs: if a disc is swapped during a pause, the old queue keeps its (now wrong) tracks until a read fails.
 - Only tested with the Rust bridge on macOS. Windows and Linux are untested.
 
 ## Limits

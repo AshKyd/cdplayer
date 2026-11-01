@@ -7,6 +7,8 @@ This document outlines the architecture for a cross-platform (macOS, Windows, Li
 
 The system is divided into a Rust backend managing hardware access and a Web frontend handling audio routing and UI, communicating via Tauri's custom protocol.
 
+**Design principle: keep it a JS app.** Rust only does what JS cannot: talk to the drive (read the TOC, read sectors, re-open the drive). State, timing, polling, queueing and decisions live in JS. When a feature can be done in either, do it in JS. For example, disc insert/eject detection is a JS poll ([disc-watcher.md](disc-watcher.md)) over one thin Rust command.
+
 ```text
 [ Physical Audio CD ]
         │
@@ -32,7 +34,7 @@ The system is divided into a Rust backend managing hardware access and a Web fro
 
 ### 3.1. The Rust Backend (The OS-Agnostic Layer)
 The Rust backend bridges the gap between raw hardware and the web view. Details: [cd-bridge.md](cd-bridge.md).
-* **Drive Access & Polling:** Uses cross-platform polling to detect optical drives and CD insertions.
+* **Drive Access:** Opens the drive and re-opens it on request (`get_toc`). It does not poll. Detecting optical drives and CD insertions is done by polling from JS (see [disc-watcher.md](disc-watcher.md)).
 * **cd-da-reader Integration:** Uses `cd-da-reader` to read the Table of Contents (TOC). It gives each track's start address (LBA); a track ends where the next begins, or at the lead-out.
 * **Chunked Sector Reads:** Rust reads raw 16-bit, 44.1kHz stereo PCM sectors (2352 bytes, 75 per second) for a requested sector range. It never reads or holds a whole track. One chunk is 375 sectors (5 s, 882,000 bytes).
 * **No WAV Wrapping:** Chunks are returned as headerless PCM. The frontend already knows the format (CD audio is always 16-bit/44.1kHz/stereo), and converts the samples itself, so `decodeAudioData()` is not used.
@@ -45,6 +47,7 @@ The frontend handles playback, gapless transitions, and visualizations, treating
 * **Buffer Management:** Holds a rolling lead of about 30 s of decoded `AudioBuffer` chunks ahead of the playhead, regardless of track length (about 10 MB as Float32). Played chunks are dropped. Memory use is constant; it does not grow with track length.
 * **AnalyserNode:** Intercepts the audio graph to provide real-time frequency (FFT) and waveform data to the visualizer.
 * **UI & Visualizer:** Svelte 5 (runes). Playback state lives in the `CDPlayer` class ([cd-player.md](cd-player.md), `src/lib/playback/CDPlayer.svelte.ts`), exposing `$state` for the track, position and status. The UI components read that state. The visualizer is a `<canvas>` component driven by `requestAnimationFrame`.
+* **Disc detection:** The `DiscWatcher` class ([disc-watcher.md](disc-watcher.md)) polls for the disc while idle and stops playback when it changes.
 * **Audio scheduling:** The `WebAudioHandler` class ([web-audio-handler.md](web-audio-handler.md)) appends PCM segments to the playback buffer and owns the `AudioContext`.
 * **Source / engine split:** MP3 CDs will be supported later using the same architecture. A source (`CDPlayer` for audio CDs, an MP3 source later) reads or decodes audio into PCM and feeds it to `WebAudioHandler`. `WebAudioHandler` knows nothing about CDs or sectors, so the Web Audio code and the CD playback code must stay separate.
 
@@ -92,7 +95,7 @@ Because CD tracks are split precisely on sample boundaries and every chunk is pl
 ### Phase 4: Metadata & Polish
 * Implement MusicBrainz DiscID calculation in Rust using the extracted TOC LBA offsets.
 * Fetch album art and tracklists from the MusicBrainz/Cover Art Archive APIs.
-* Implement optical drive polling (using `sysinfo` or manual block device checking) for cross-platform insertion/ejection detection.
+* ~~Optical drive polling~~ Done: the JS `DiscWatcher` polls `get_toc` for insertion/ejection ([disc-watcher.md](disc-watcher.md)). Native OS notifications (DiskArbitration, `WM_DEVICECHANGE`, udev) are not used, to keep this one cross-platform code path.
 
 ## 6. Known Issues to Solve
 

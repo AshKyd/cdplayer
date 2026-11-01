@@ -1,27 +1,31 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
-  import { SECTORS_PER_SECOND, type Toc, type Track } from "$lib/disc/types";
+  import { onMount, untrack } from "svelte";
+  import { DiscWatcher } from "$lib/disc/DiscWatcher.svelte";
+  import { SECTORS_PER_SECOND, type Track } from "$lib/disc/types";
   import { CDPlayer } from "$lib/playback/CDPlayer.svelte";
 
   const player = new CDPlayer();
+  /** Polls the drive for a new, swapped or ejected disc. Idle only: re-opening the drive would cut off playback. */
+  const watcher = new DiscWatcher({
+    isBusy: () => player.status !== "idle",
+    // Whatever was playing or queued belongs to the old disc.
+    onChange: () => player.stop(),
+  });
   /** Where `play()` starts, in seconds into the track. */
   let startAtSeconds = $state(0);
 
-  let toc = $state<Toc | null>(null);
-  let tocError = $state("");
   /** Result of the last test chunk read, keyed by track number. */
   let chunkResults = $state<Record<number, string>>({});
 
-  const loadToc = () =>
-    invoke<Toc>("get_toc")
-      .then((result) => {
-        toc = result;
-        tocError = "";
-      })
-      .catch((error) => {
-        toc = null;
-        tocError = String(error);
-      });
+  onMount(() => {
+    watcher.start();
+    return () => watcher.stop();
+  });
+
+  // A failed read while playing usually means the disc was ejected: look at the drive straight away.
+  $effect(() => {
+    if (player.error) untrack(() => watcher.checkNow());
+  });
 
   const formatClock = (totalSeconds: number) =>
     `${Math.floor(totalSeconds / 60)}:${String(Math.floor(totalSeconds % 60)).padStart(2, "0")}`;
@@ -46,13 +50,13 @@
       ? `${body.byteLength} bytes in ${elapsedMs} ms`
       : `${response.status}: ${new TextDecoder().decode(body)}`;
   };
-
-  loadToc();
 </script>
 
 <main>
   <h1>cdplayer</h1>
-  <button onclick={loadToc}>Reload disc</button>
+  <button onclick={() => watcher.checkNow()} disabled={watcher.checking || player.status !== "idle"}>
+    Check for disc
+  </button>
 
   <section class="transport">
     <button onclick={() => player.togglePause()} disabled={player.status !== "playing" && player.status !== "paused"}>
@@ -86,11 +90,11 @@
     <p class="error">{player.error}</p>
   {/if}
 
-  {#if tocError}
-    <p class="error">{tocError}</p>
-  {:else if toc}
+  {#if watcher.error}
+    <p class="error">{watcher.error}</p>
+  {:else if watcher.toc}
     <ol>
-      {#each toc.tracks as track (track.number)}
+      {#each watcher.toc.tracks as track (track.number)}
         <li>
           <span>Track {track.number} · {formatDuration(track)}{track.is_audio ? "" : " (data)"}</span>
           {#if track.is_audio}
