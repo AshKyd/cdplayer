@@ -41,28 +41,33 @@
 
 <main>
   <header>
-    <TransportControls
-      playing={isSounding}
-      disabled={!hasPlayableTrack || !isDiscReady(player.status)}
-      canPrevious={isActive}
-      canNext={player.queue.length > 1}
-      onprevious={() => void player.previous()}
-      onplaypause={() => void player.playPause()}
-      onnext={() => void player.next()}
-    />
-    <SeekBar
-      positionSeconds={player.positionSeconds}
-      durationSeconds={player.durationSeconds}
-      disabled={!isActive}
-      onseek={(seconds) => void player.seek(seconds)}
-    />
-    <Button
-      variant="ghost"
-      icon="gear"
-      iconPosition="only"
-      aria-label="Settings"
-      onclick={() => void openSettingsWindow()}
-    />
+    {#if player.metadata}
+      <div class="album"><AlbumHeader metadata={player.metadata} /></div>
+    {/if}
+    <div class="controls">
+      <TransportControls
+        playing={isSounding}
+        disabled={!hasPlayableTrack || !isDiscReady(player.status)}
+        canPrevious={isActive}
+        canNext={player.queue.length > 1}
+        onprevious={() => void player.previous()}
+        onplaypause={() => void player.playPause()}
+        onnext={() => void player.next()}
+      />
+      <SeekBar
+        positionSeconds={player.positionSeconds}
+        durationSeconds={player.durationSeconds}
+        disabled={!isActive}
+        onseek={(seconds) => void player.seek(seconds)}
+      />
+      <Button
+        variant="ghost"
+        icon="gear"
+        iconPosition="only"
+        aria-label="Settings"
+        onclick={() => void openSettingsWindow()}
+      />
+    </div>
   </header>
 
   {#if player.interrupted}
@@ -83,9 +88,7 @@
   {:else if player.status === "loadingMetadata"}
     <p class="message"><Loader /> Looking up the disc…</p>
   {:else}
-    {#if player.metadata}
-      <AlbumHeader metadata={player.metadata} />
-    {:else if player.metadataError}
+    {#if !player.metadata && player.metadataError}
       <p class="hint">Track names unavailable: {player.metadataError}.</p>
     {/if}
     <section>
@@ -113,9 +116,37 @@
 
   header {
     display: flex;
-    gap: 1.25rem;
+    flex-wrap: wrap;
+    gap: 1rem 1.5rem;
     align-items: center;
     padding-block: 1rem;
+  }
+
+  /* As wide as the title or artist needs, up to the max; longer text is scaled down to fit. */
+  .album {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 20rem;
+  }
+
+  .controls {
+    display: flex;
+    flex: 1 1 0;
+    gap: 1.25rem;
+    align-items: center;
+    min-width: 0;
+  }
+
+  /* Narrow: the controls take the first line and the album drops below them. */
+  @media (max-width: 45rem) {
+    .controls {
+      flex-basis: 100%;
+    }
+
+    .album {
+      order: 1;
+      max-width: 100%;
+    }
   }
 
   section {

@@ -11,6 +11,7 @@ The player window, built with [svelte-akui](https://github.com/ashkyd/svelte-aku
 - `src/lib/components/TrackTable/`: `TrackTable.svelte` (the track list) and `trackRows.ts` (tracks and names to rows).
 - `src/lib/components/WaveformVisualiser/`: `WaveformVisualiser.svelte` (canvas, redrawn each animation frame from `player.readWaveform()`) and `waveformPoints.ts` (bytes to canvas points).
 - `src/lib/components/AlbumHeader/AlbumHeader.svelte`: the cover, album, artist and year.
+- `src/lib/components/CopyfitText/`: `CopyfitText.svelte` (one line of text scaled down to fit its width) and `copyfitScale.ts` (the scale calculation). Used for the album title and the artist line.
 - `src/lib/components/TransportControls/TransportControls.svelte`: previous, play/pause and next buttons.
 - `src/lib/components/SeekBar/SeekBar.svelte`: the progress bar and times.
 - `src/lib/playback/format.ts`: `formatClock()`.
@@ -25,7 +26,8 @@ When the disc is ejected the status becomes `noDisc`, so the table goes away and
 
 ## Behaviour
 
-- Layout: a top bar (transport buttons and seek bar), then any notices, then the album header and the track table filling the rest of the window.
+- Layout: a top bar, then any notices, then the track table filling the rest of the window. The top bar holds the album header (if known) and the controls (transport buttons, seek bar, settings). Side by side, the album comes first and the controls fill the rest. The album is as wide as its text needs (fit-content), up to 20rem. At 45rem or narrower the controls take the first line and the album wraps below them (`order: 1`, up to the full width).
+- `CopyfitText`: a hidden copy of the text at full size sets the container's width, so the container is as wide as the text up to the parent's `max-width`. A `ResizeObserver` compares that to the container's width and sets the visible text's `font-size` (in `em`) to fit, never below `minScale` (default 0.6). Below that the text is clipped with an ellipsis. The full-size look (`font-size`, `font-weight`, `color`) is passed in `style`.
 - `WaveformVisualiser` is a proof of concept, drawn as a fixed full-window backdrop behind `main` (`z-index` 0 vs 1, no pointer events). The track table's wrapper (`section`) is frosted glass: a 55% `--akui-bg` tint and a 12px `backdrop-filter` blur, so the waveform shows through softly. It is an oscilloscope line of the last ~46 ms of output, drawn in the accent colour. Each frame erases only 15% of the last (`DECAY_ERASE_ALPHA`), so earlier lines fade out over about half a second. While paused or stopped (`playing` false) nothing new is drawn, so the last lines fade to an empty canvas.
 - `TrackTable` uses akui `DetailsTable`. Columns: `#`, title, an artist column only on compilations (tracks whose artist differs from the album's), and time. `autoFit` sizes `#` and time to their content; title and artist share the spare width 2 : 1 (`fitFlex`). The playing/paused icon sits in the `#` cell, in a reserved slot, and fades in. Rows are always in disc order (no sorting), because "play from here" means "the tracks after this one on the disc".
   - The current track is bold and has a speaker icon (a pause icon when paused).

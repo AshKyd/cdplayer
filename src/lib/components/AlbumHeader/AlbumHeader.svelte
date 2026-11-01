@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Icon } from "svelte-akui";
+  import CopyfitText from "$lib/components/CopyfitText/CopyfitText.svelte";
   import type { DiscMetadata } from "$lib/metadata/types";
 
   interface Props {
@@ -29,8 +30,10 @@
     {/if}
   </div>
   <div class="text">
-    <h1>{metadata.album}</h1>
-    {#if details}<p>{details}</p>{/if}
+    <CopyfitText tag="h1" text={metadata.album} style="font-size: 1.25rem; font-weight: 600;" />
+    {#if details}
+      <CopyfitText tag="p" text={details} style="color: var(--akui-fg-secondary);" />
+    {/if}
   </div>
 </div>
 
@@ -61,19 +64,5 @@
 
   .text {
     min-width: 0;
-  }
-
-  h1 {
-    overflow: hidden;
-    font-size: 1.25rem;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  p {
-    overflow: hidden;
-    color: var(--akui-fg-secondary);
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 </style>
