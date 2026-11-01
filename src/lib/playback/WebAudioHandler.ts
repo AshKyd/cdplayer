@@ -9,7 +9,11 @@ const START_DELAY_SECONDS = 0.05;
 interface Options {
   /** Makes the `AudioContext`. Tests pass a fake. */
   createContext?: () => AudioContext;
+  /** Length in seconds of the fade when pausing and resuming, read each time so a setting can change it. 0 is no fade. */
+  fadeSeconds?: () => number;
 }
+
+const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 /** One scheduled piece of audio. Segments are back to back, in order of `startFrame`. */
 interface Segment {
@@ -45,7 +49,12 @@ export class WebAudioHandler {
   onInterruption: (interrupted: boolean) => void = () => {};
 
   #createContext: () => AudioContext;
+  #fadeSeconds: () => number;
   #context: AudioContext | null = null;
+  /** Every segment plays through this, so a pause or resume can fade the whole output. */
+  #gain: GainNode | null = null;
+  /** Bumped by `suspend()`, `resume()` and `stop()`, so a fade-out that was overtaken doesn't suspend the context. */
+  #fadeToken = 0;
   #segments: Segment[] = [];
   #baseTime = 0;
   #scheduledFrames = 0;
@@ -55,8 +64,12 @@ export class WebAudioHandler {
   #suspendRequested = false;
   #interrupted = false;
 
-  constructor({ createContext = () => new AudioContext({ sampleRate: SAMPLE_RATE }) }: Options = {}) {
+  constructor({
+    createContext = () => new AudioContext({ sampleRate: SAMPLE_RATE }),
+    fadeSeconds = () => 0,
+  }: Options = {}) {
     this.#createContext = createContext;
+    this.#fadeSeconds = fadeSeconds;
   }
 
   #getContext(): AudioContext {
@@ -64,6 +77,8 @@ export class WebAudioHandler {
 
     const context = this.#createContext();
     this.#context = context;
+    this.#gain = context.createGain();
+    this.#gain.connect(context.destination);
     context.addEventListener("statechange", () => this.#handleStateChange(context));
     // Honour a pause requested before the first segment arrived; otherwise make sure it is running,
     // since a context made outside a user gesture can start suspended.
@@ -190,15 +205,38 @@ export class WebAudioHandler {
     return true;
   }
 
-  /** Pauses. Works before the first segment too: the context is then created already suspended. */
-  suspend(): Promise<void> {
+  /**
+   * Pauses, after fading out if audible audio is playing (a hard stop clicks). Works before the first
+   * segment too: the context is then created already suspended.
+   */
+  async suspend(): Promise<void> {
     this.#suspendRequested = true;
-    return this.#context?.suspend() ?? Promise.resolve();
+    const context = this.#context;
+    if (!context) return;
+
+    const token = ++this.#fadeToken;
+    const fadeSeconds = this.#fadeSeconds();
+    const isAudible = context.state === "running" && this.#segments.length > 0;
+    if (fadeSeconds > 0 && isAudible) {
+      this.#rampGain(context, 0, fadeSeconds);
+      await sleep(fadeSeconds * 1000);
+      // Resumed or stopped during the fade: leave the context running.
+      if (token !== this.#fadeToken) return;
+    }
+    await context.suspend();
   }
 
+  /** Resumes, fading in from silence so the audio doesn't start with a click. */
   resume(): Promise<void> {
     this.#suspendRequested = false;
-    return this.#context?.resume() ?? Promise.resolve();
+    this.#fadeToken++;
+    const context = this.#context;
+    if (!context) return Promise.resolve();
+
+    // The clock is frozen while suspended, so the ramp set now starts when the context does.
+    const startGain = context.state === "suspended" ? 0 : (this.#gain?.gain.value ?? 1);
+    this.#rampGain(context, 1, this.#fadeSeconds(), startGain);
+    return context.resume();
   }
 
   /** Silences and drops everything scheduled, and resets the clock for the next `appendSegment`. */
@@ -210,14 +248,29 @@ export class WebAudioHandler {
     this.#playedBeforeBase = 0;
     // A suspended context would delay the next play; make sure it is running again.
     this.#suspendRequested = false;
+    this.#fadeToken++;
+    if (this.#context) this.#rampGain(this.#context, 1, 0);
     void this.#context?.resume().catch(() => {});
+  }
+
+  /** Moves the output volume to `target` over `seconds` (immediately if 0), from `from` (default: where it is now). */
+  #rampGain(context: AudioContext, target: number, seconds: number, from = this.#gain?.gain.value ?? 1): void {
+    const param = this.#gain?.gain;
+    if (!param) return;
+    param.cancelScheduledValues(context.currentTime);
+    if (seconds <= 0) {
+      param.setValueAtTime(target, context.currentTime);
+      return;
+    }
+    param.setValueAtTime(from, context.currentTime);
+    param.linearRampToValueAtTime(target, context.currentTime + seconds);
   }
 
   /** Schedules `buffer` from its `offsetFrames`-th frame to start `startFrame` frames after the anchor. */
   #schedule(context: AudioContext, buffer: AudioBuffer, startFrame: number, offsetFrames: number): void {
     const source = context.createBufferSource();
     source.buffer = buffer;
-    source.connect(context.destination);
+    source.connect(this.#gain ?? context.destination);
 
     const segment: Segment = { source, buffer, offsetFrames, frames: buffer.length - offsetFrames, startFrame };
     source.onended = () => {

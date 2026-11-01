@@ -42,7 +42,7 @@ A found disc is stored in `localStorage` as `cdplayer.musicbrainz.{disc id}`, so
 - The first matching release is used, with no way to choose another. Reissues and regional pressings may differ in names.
 - No fuzzy match by TOC (`?toc=`) when the exact disc ID is unknown, and no link to add an unknown disc to MusicBrainz.
 - No custom `User-Agent`. The webview's may be throttled by MusicBrainz. `tauri-plugin-http` (called from JS) would allow one.
-- Every lookup tells MusicBrainz which disc is in the drive. There is no setting to turn it off.
+- Every lookup tells MusicBrainz which disc is in the drive. The `musicBrainzEnabled` setting ([settings.md](settings.md)) turns lookups off: `CDPlayer` then skips the lookup entirely.
 - CD-TEXT is not read.
 - MusicBrainz's live service is free for non-commercial use only.
 

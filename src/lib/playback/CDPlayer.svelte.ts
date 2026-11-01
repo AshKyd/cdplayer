@@ -3,6 +3,7 @@ import { DiscWatcher } from "$lib/disc/DiscWatcher.svelte";
 import { SECTORS_PER_SECOND, type Toc, type Track } from "$lib/disc/types";
 import { lookupDiscMetadata } from "$lib/metadata/musicBrainz";
 import type { DiscMetadata } from "$lib/metadata/types";
+import { settings } from "$lib/settings/settings.svelte";
 import {
   chunkUrl,
   currentSpanIndex,
@@ -28,9 +29,22 @@ interface Options {
   loadToc?: () => Promise<Toc>;
   /** Looks up a disc's track names and cover; defaults to MusicBrainz. Tests pass a fake. */
   loadMetadata?: (toc: Toc) => Promise<DiscMetadata>;
+  /** Whether to look discs up at all; defaults to the MusicBrainz setting. Tests pass a fake. */
+  isMetadataLookupEnabled?: () => boolean;
   /** Time between checks for a new or removed disc, while nothing is playing. */
   discCheckIntervalMs?: number;
+  /** Seconds of audio to hold back before a run starts sounding; defaults to `PREBUFFER_SECONDS`. */
+  prebufferSeconds?: number;
 }
+
+/** Fade length for play and pause when the setting is on. */
+const FADE_SECONDS = 0.1;
+
+/**
+ * A run doesn't make a sound until this much audio is buffered, so a slow drive read right after the
+ * start can't cause a stutter.
+ */
+const PREBUFFER_SECONDS = 5;
 
 /** Bytes per CD sector of raw PCM. */
 const SECTOR_BYTES = 2352;
@@ -99,6 +113,7 @@ export class CDPlayer {
   #watcher: DiscWatcher;
   #fetchChunk: (url: string) => Promise<Response>;
   #loadMetadata: (toc: Toc) => Promise<DiscMetadata>;
+  #isMetadataLookupEnabled: () => boolean;
   #baseUrl: string;
   /** Bumped for every disc found or removed, so a lookup for an earlier disc is ignored when it finishes. */
   #discToken = 0;
@@ -118,19 +133,26 @@ export class CDPlayer {
   #fetching = false;
   /** Seconds of audio scheduled so far on the handler's timeline. */
   #scheduledSeconds = 0;
+  /** True from the start of a run until `#prebufferSeconds` are buffered; the handler is held silent meanwhile. */
+  #prebuffering = false;
+  #prebufferSeconds: number;
 
   constructor({
-    handler = new WebAudioHandler(),
+    handler = new WebAudioHandler({ fadeSeconds: () => (settings.fadeEnabled ? FADE_SECONDS : 0) }),
+    prebufferSeconds = PREBUFFER_SECONDS,
     fetchChunk = (url) => fetch(url),
     baseUrl = cdTrackBaseUrl(),
     loadToc,
     loadMetadata = (toc) => lookupDiscMetadata(toc),
+    isMetadataLookupEnabled = () => settings.musicBrainzEnabled,
     discCheckIntervalMs,
   }: Options = {}) {
     this.#handler = handler;
+    this.#prebufferSeconds = prebufferSeconds;
     this.#fetchChunk = fetchChunk;
     this.#baseUrl = baseUrl;
     this.#loadMetadata = loadMetadata;
+    this.#isMetadataLookupEnabled = isMetadataLookupEnabled;
 
     // The drive is left alone while audio is active: re-opening it would cut off reads.
     this.#watcher = new DiscWatcher({
@@ -237,6 +259,8 @@ export class CDPlayer {
       this.queue.splice(1);
       this.#fetchIndex = this.queue.length;
       this.#scheduledSeconds = nextSpan.startSeconds;
+      // Nothing more is coming, so don't keep waiting for a full prebuffer.
+      this.#openGateIfReady();
       return;
     }
     this.queue.splice(this.#fetchIndex + 1);
@@ -303,6 +327,12 @@ export class CDPlayer {
     // The user pressing Play takes over from an interruption.
     this.#pausedByInterruption = false;
     this.interrupted = false;
+    // Still prebuffering: the handler stays held until enough is buffered.
+    if (this.#prebuffering) {
+      this.#dispatch({ type: "resume", to: "loading" });
+      this.#openGateIfReady();
+      return;
+    }
     await this.#handler.resume();
     this.#dispatch({ type: "resume", to: this.#statusAfterPause() });
   }
@@ -338,8 +368,15 @@ export class CDPlayer {
     void this.#lookUpMetadata(toc, token);
   }
 
-  /** Finds the disc's track names. Not finding them is not an error: the disc plays with "Track N". */
+  /**
+   * Finds the disc's track names. Not finding them is not an error: the disc plays with "Track N".
+   * When the user has turned lookups off nothing is sent, and the disc is ready straight away without an error.
+   */
   async #lookUpMetadata(toc: Toc, token: number): Promise<void> {
+    if (!this.#isMetadataLookupEnabled()) {
+      this.#dispatch({ type: "metadataSettled" });
+      return;
+    }
     const result = await this.#loadMetadata(toc).then(
       (metadata) => ({ metadata, error: "" }),
       (reason) => ({ metadata: null, error: reason instanceof Error ? reason.message : String(reason) }),
@@ -365,12 +402,28 @@ export class CDPlayer {
     this.interrupted = false;
     this.#startedPlaying = false;
     this.#pausedByInterruption = false;
+    this.#prebuffering = false;
   }
 
   /** What the player was doing before a pause, worked out from the audio rather than remembered. */
   #statusAfterPause(): "loading" | "playing" | "buffering" {
+    if (this.#prebuffering) return "loading";
     if (this.#handler.hasQueuedAudio) return "playing";
     return this.#startedPlaying ? "buffering" : "loading";
+  }
+
+  /**
+   * Starts the sound once enough is buffered, or once the whole queue is (a short track never reaches the
+   * target). Does nothing while the user has paused: `resume()` tries again.
+   */
+  #openGateIfReady(): void {
+    if (!this.#prebuffering || this.status === "paused" || !this.#handler.hasQueuedAudio) return;
+    const isEnoughBuffered = this.#handler.leadSeconds >= this.#prebufferSeconds;
+    if (!isEnoughBuffered && this.#fetching) return;
+
+    this.#prebuffering = false;
+    void this.#handler.resume();
+    this.#markPlaying();
   }
 
   #markPlaying(): void {
@@ -412,6 +465,9 @@ export class CDPlayer {
     this.trackNumber = first.number;
     this.positionSeconds = startSector / SECTORS_PER_SECOND;
     this.#dispatch({ type: "play" });
+    // Hold the audio silent until the prebuffer is full.
+    this.#prebuffering = true;
+    void this.#handler.suspend();
     this.#trackPosition(runId);
     return this.#pump(runId, startSector);
   }
@@ -441,7 +497,9 @@ export class CDPlayer {
       this.#fetchIndex++;
       startSector = 0;
     }
-    if (!isCancelled()) this.#fetching = false;
+    if (isCancelled()) return;
+    this.#fetching = false;
+    this.#openGateIfReady();
   }
 
   /** Reads one track's chunks and schedules them, topping the lead up to `TARGET_LEAD_SECONDS`. */
@@ -480,7 +538,8 @@ export class CDPlayer {
       this.#handler.appendSegment(body);
       this.#scheduledSeconds += sectorsRead / SECTORS_PER_SECOND;
       cursorSector += sectorsRead;
-      this.#markPlaying();
+      if (this.#prebuffering) this.#openGateIfReady();
+      else this.#markPlaying();
       isFirstChunk = false;
     }
   }

@@ -21,6 +21,29 @@ export class FakeSource {
   }
 }
 
+/** A stand-in for `AudioParam` that records the ramps set on it. A ramp takes effect at once. */
+export class FakeParam {
+  value = 1;
+  events: Array<{ type: "set" | "ramp"; value: number; time: number }> = [];
+
+  cancelScheduledValues() {}
+  setValueAtTime(value: number, time: number) {
+    this.value = value;
+    this.events.push({ type: "set", value, time });
+  }
+  linearRampToValueAtTime(value: number, time: number) {
+    this.value = value;
+    this.events.push({ type: "ramp", value, time });
+  }
+}
+
+/** A stand-in for `GainNode`. */
+export class FakeGain {
+  gain = new FakeParam();
+  connect() {}
+  disconnect() {}
+}
+
 /**
  * A stand-in for `AudioContext` with a clock and state the test controls, so the handler and player can
  * be exercised without audio hardware. Cast to `AudioContext` where the code under test expects one.
@@ -63,6 +86,14 @@ export class FakeAudioContext {
 
   createBuffer(_channels: number, length: number) {
     return { length, copyToChannel() {} };
+  }
+
+  gains: FakeGain[] = [];
+
+  createGain() {
+    const gain = new FakeGain();
+    this.gains.push(gain);
+    return gain;
   }
 
   createBufferSource() {

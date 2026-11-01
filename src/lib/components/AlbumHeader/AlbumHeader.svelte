@@ -18,7 +18,12 @@
 <div class="album">
   <div class="cover">
     {#if metadata.coverUrl && !coverFailed}
-      <img src={metadata.coverUrl} alt="Cover of {metadata.album}" onerror={() => (coverFailed = true)} />
+      <img src={metadata.coverUrl} alt="Cover of {metadata.album}" onerror={() => {
+          console.log(`[cover] ${JSON.stringify({ imageFailedToLoad: metadata.coverUrl })}`);
+          coverFailed = true;
+        }}
+        onload={() => console.log(`[cover] ${JSON.stringify({ imageLoaded: metadata.coverUrl })}`)}
+      />
     {:else}
       <Icon name="disc" size="2rem" />
     {/if}

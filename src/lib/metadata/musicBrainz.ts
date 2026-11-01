@@ -108,19 +108,31 @@ const writeCache = (storage: MetadataStorage | null, metadata: DiscMetadata): vo
   }
 };
 
+/** One string per line so the details can be copied out of the console. */
+const log = (details: Record<string, unknown>): void => console.log(`[musicbrainz] ${JSON.stringify(details)}`);
+
 const getJson = async <T>(fetcher: typeof fetch, url: string): Promise<{ status: number; json: T | null }> => {
+  log({ fetching: url });
   const response = await fetcher(url, {
     headers: { Accept: "application/json" },
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
+  log({ fetched: url, status: response.status, finalUrl: response.url, redirected: response.redirected });
   return { status: response.status, json: response.ok ? ((await response.json()) as T) : null };
 };
 
 /** The front cover of a release, or `null`. Never throws: a missing cover isn't worth failing the lookup. */
 const fetchCoverUrl = async (fetcher: typeof fetch, releaseId: string): Promise<string | null> =>
   getJson<CoverArtIndex>(fetcher, `${COVER_ART_URL}/${releaseId}`)
-    .then(({ json }) => (json ? pickCoverUrl(json) : null))
-    .catch(() => null);
+    .then(({ json }) => {
+      const coverUrl = json ? pickCoverUrl(json) : null;
+      log({ releaseId, imageCount: json?.images?.length ?? 0, coverUrl });
+      return coverUrl;
+    })
+    .catch((reason) => {
+      log({ releaseId, coverError: reason instanceof Error ? `${reason.name}: ${reason.message}` : String(reason) });
+      return null;
+    });
 
 /**
  * Looks a disc up on MusicBrainz by its disc ID and takes the first matching release, with its front
@@ -137,7 +149,15 @@ export const lookupDiscMetadata = async (toc: Toc, { fetcher = fetch, storage = 
   if (!discId) throw new Error("the disc has no audio tracks");
 
   const cached = readCache(storage, discId);
-  if (cached) return cached;
+  if (cached) {
+    log({ cacheHit: discId, releaseId: cached.releaseId, coverUrl: cached.coverUrl });
+    if (cached.coverUrl) return cached;
+
+    // An earlier cover lookup may have failed (offline, timeout) and been cached as "no cover", so retry just the cover.
+    const withCover = { ...cached, coverUrl: await fetchCoverUrl(fetcher, cached.releaseId) };
+    if (withCover.coverUrl) writeCache(storage, withCover);
+    return withCover;
+  }
 
   const { status, json } = await getJson<{ releases?: MusicBrainzRelease[] }>(
     fetcher,

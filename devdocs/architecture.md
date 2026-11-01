@@ -51,6 +51,8 @@ The frontend handles playback, gapless transitions, and visualizations, treating
 * **Disc detection:** The `DiscWatcher` class ([disc-watcher.md](disc-watcher.md)), owned by `CDPlayer`, polls for the disc while no audio is active and reports when it changes.
 * **Metadata:** Track names, artist and cover come from MusicBrainz and the Cover Art Archive ([musicbrainz.md](musicbrainz.md)), looked up in JS by the disc ID computed from the TOC.
 * **Window UI:** Built with the svelte-akui library: a `DetailsTable` track list, an album header, icon transport buttons and a seek bar ([ui.md](ui.md)). The components show `CDPlayer`'s state and send it commands.
+* **Settings:** The `settings` store ([settings.md](settings.md)) is saved to `localStorage`, shared by every part of a window, and synced live to the other windows with Tauri events. The settings window is a second webview that opens the `/settings` route. No Rust.
+* **System media controls:** The `NowPlaying` component (`NowPlayingBridge`; [now-playing.md](now-playing.md)) shows the track in the OS Now Playing display (macOS menubar) and handles media keys, using the Media Session API. No Rust.
 * **Audio scheduling:** The `WebAudioHandler` class ([web-audio-handler.md](web-audio-handler.md)) appends PCM segments to the playback buffer and owns the `AudioContext`.
 * **Source / engine split:** MP3 CDs will be supported later using the same architecture. A source (`CDPlayer` for audio CDs, an MP3 source later) reads or decodes audio into PCM and feeds it to `WebAudioHandler`. `WebAudioHandler` knows nothing about CDs or sectors, so the Web Audio code and the CD playback code must stay separate.
 

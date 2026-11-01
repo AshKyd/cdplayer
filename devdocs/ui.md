@@ -4,8 +4,10 @@ The player window, built with [svelte-akui](https://github.com/ashkyd/svelte-aku
 
 ## Files
 
-- `src/routes/+layout.svelte`: wraps the app in `UIRoot` (theme, base font) and sets `color-scheme`.
+- `src/routes/+layout.svelte`: wraps the app in `UIRoot` (theme, base font) and sets `color-scheme`. It also binds `UIRoot`'s `resolvedMode` and calls `syncWindowTheme` (`src/lib/theme/syncWindowTheme.ts`), which sets the native titlebar to the same scheme through the window's `setTheme` (needs the `core:window:allow-set-theme` permission). Without this the titlebar follows the OS even when the user picks another theme in the app.
 - `src/routes/+page.svelte`: makes the `CDPlayer`, starts it on mount and destroys it on unmount, and chooses what to show for each `status`.
+- `src/lib/components/NowPlaying/`: renderless; feeds the OS media controls ([now-playing.md](now-playing.md)).
+- The top bar has a gear button that opens the settings window (`src/routes/settings/+page.svelte`; see [settings.md](settings.md)).
 - `src/lib/components/TrackTable/`: `TrackTable.svelte` (the track list) and `trackRows.ts` (tracks and names to rows).
 - `src/lib/components/AlbumHeader/AlbumHeader.svelte`: the cover, album, artist and year.
 - `src/lib/components/TransportControls/TransportControls.svelte`: previous, play/pause and next buttons.
@@ -23,7 +25,7 @@ When the disc is ejected the status becomes `noDisc`, so the table goes away and
 ## Behaviour
 
 - Layout: a top bar (transport buttons and seek bar), then any notices, then the album header and the track table filling the rest of the window.
-- `TrackTable` uses akui `DetailsTable`. Columns: a marker, `#`, title, an artist column only on compilations (tracks whose artist differs from the album's), and time. Rows are always in disc order (no sorting), because "play from here" means "the tracks after this one on the disc".
+- `TrackTable` uses akui `DetailsTable`. Columns: `#`, title, an artist column only on compilations (tracks whose artist differs from the album's), and time. `autoFit` sizes `#` and time to their content; title and artist share the spare width 2 : 1 (`fitFlex`). The playing/paused icon sits in the `#` cell, in a reserved slot, and fades in. Rows are always in disc order (no sorting), because "play from here" means "the tracks after this one on the disc".
   - The current track is bold and has a speaker icon (a pause icon when paused).
   - Data tracks are dimmed and cannot be played.
   - Double-clicking a row, or pressing Enter on it, calls `onplay(track)`; the page calls `player.playFrom(track)`, which clears the queue, plays that track and queues every playable track after it.

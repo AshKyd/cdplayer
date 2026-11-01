@@ -14,7 +14,7 @@ The player: finds the disc, looks up its track names ([musicbrainz.md](musicbrai
 
 ## API
 
-- `new CDPlayer({ handler, fetchChunk, baseUrl, loadToc, loadMetadata, discCheckIntervalMs })`: all optional. Tests pass a `WebAudioHandler` on a fake `AudioContext`, a fake chunk fetch, a fake drive (`loadToc`) and a fake lookup (`loadMetadata`). `baseUrl` is the `cd-track` protocol root, by default from `cdTrackBaseUrl()`.
+- `new CDPlayer({ handler, fetchChunk, baseUrl, loadToc, loadMetadata, isMetadataLookupEnabled, discCheckIntervalMs, prebufferSeconds })`: all optional. `prebufferSeconds` defaults to 5; the default handler fades by 100 ms when the `fadeEnabled` setting is on. `isMetadataLookupEnabled` defaults to the `musicBrainzEnabled` setting; when false the lookup is skipped and the disc is `ready` with no error. Tests pass a `WebAudioHandler` on a fake `AudioContext`, a fake chunk fetch, a fake drive (`loadToc`) and a fake lookup (`loadMetadata`). `baseUrl` is the `cd-track` protocol root, by default from `cdTrackBaseUrl()`.
 - `start()`: starts watching the drive for a disc. `destroy()`: stops watching and stops the audio. `checkDisc()`: looks at the drive now (does nothing while audio is active).
 - Disc state: `status`, `tracks` (the disc's tracks, empty with no disc), `metadata` (`DiscMetadata` or `null`), `metadataError`, `discError` (why there is no disc) and `checkingDisc`.
 - Playback state: `trackNumber`, `positionSeconds`, `durationSeconds` (length of the current track), `error`, `queue`, `unreadableSectors`, `interrupted`.
@@ -43,6 +43,7 @@ The player: finds the disc, looks up its track names ([musicbrainz.md](musicbrai
 - Every `playQueue()` and `stop()` bumps a run id. An older run sees the change and drops its late responses.
 - A non-200 chunk sets `error` and stops. Unreadable sectors inside a 200 chunk do not: they are already silence.
 - Playback is finished only when every queued track is fetched and the handler reports it has ended. A mid-queue underrun does not end it: it sets `buffering`.
+- Prebuffer: every run (`play`, `next` and `seek` restarts) starts with the handler suspended and stays `loading` until `handler.leadSeconds` reaches 5 s (`prebufferSeconds` option), or until the whole queue is fetched if that is shorter. Then the handler resumes (fading in) and the status becomes `playing`. A pause during this keeps it held; `resume()` returns to `loading` and the gate opens once enough is buffered. Underruns later in a run do not wait for 5 s.
 - `pause()` works from `loading`, `buffering` and `playing`. Paused during `loading`, the first chunk still arrives but stays silent until `resume()`. `resume()` goes back to `playing` if audio is queued, to `buffering` if audio had started and run dry, and to `loading` if no chunk had arrived.
 - Interruptions: when the handler reports the system stopped the audio (`onInterruption(true)`), a playing or buffering player becomes `paused` with `interrupted` set. The handler tries to resume by itself; if that works the player returns to its status and clears `interrupted`. If the webview needs a user gesture, the user presses Play, and `resume()` does it. A pause made by the user is never undone by the system recovering.
 - `positionSeconds` comes from `WebAudioHandler.playedSeconds`, which allows for output latency, so it follows what is heard.

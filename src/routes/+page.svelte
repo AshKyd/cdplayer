@@ -1,13 +1,15 @@
 <script lang="ts">
-  import { InfoBox, Loader } from "svelte-akui";
+  import { Button, InfoBox, Loader } from "svelte-akui";
   import { onMount } from "svelte";
   import AlbumHeader from "$lib/components/AlbumHeader/AlbumHeader.svelte";
+  import NowPlaying from "$lib/components/NowPlaying/NowPlaying.svelte";
   import SeekBar from "$lib/components/SeekBar/SeekBar.svelte";
   import TrackTable from "$lib/components/TrackTable/TrackTable.svelte";
   import { toTrackRows } from "$lib/components/TrackTable/trackRows";
   import TransportControls from "$lib/components/TransportControls/TransportControls.svelte";
   import { CDPlayer } from "$lib/playback/CDPlayer.svelte";
   import { isDiscReady, isPlaybackActive } from "$lib/playback/playerMachine";
+  import { openSettingsWindow } from "$lib/settings/openSettingsWindow";
 
   const player = new CDPlayer();
 
@@ -32,6 +34,8 @@
   );
 </script>
 
+<NowPlaying {player} />
+
 <main>
   <header>
     <TransportControls
@@ -48,6 +52,13 @@
       durationSeconds={player.durationSeconds}
       disabled={!isActive}
       onseek={(seconds) => void player.seek(seconds)}
+    />
+    <Button
+      variant="ghost"
+      icon="gear"
+      iconPosition="only"
+      aria-label="Settings"
+      onclick={() => void openSettingsWindow()}
     />
   </header>
 

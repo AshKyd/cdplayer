@@ -10,7 +10,7 @@ Schedules PCM segments back to back on the Web Audio clock. It knows nothing abo
 
 ## API
 
-- `new WebAudioHandler({ createContext })`: optional. `createContext` makes the `AudioContext`; tests pass a fake.
+- `new WebAudioHandler({ createContext, fadeSeconds })`: optional. `createContext` makes the `AudioContext`; tests pass a fake. `fadeSeconds` returns the fade length in seconds, read on each pause/resume; default 0 (no fade).
 - `appendSegment(pcm: ArrayBuffer)`: queues headerless 16-bit, 44.1 kHz, stereo PCM after what is already scheduled.
 - `leadSeconds`: audio scheduled but not yet played, on the context clock.
 - `playedSeconds`: time heard since the first segment, i.e. what has reached the speakers. Holds while suspended.
@@ -19,7 +19,7 @@ Schedules PCM segments back to back on the Web Audio clock. It knows nothing abo
 - `dropAfter(timelineSeconds): boolean`: removes the audio that starts at or after that time and rewinds, so the next `appendSegment()` follows on from the cut. Returns `false`, cutting nothing, if any of that audio has already started.
 - `skipTo(timelineSeconds): boolean`: jumps playback to that time, which must be inside audio still scheduled. Returns `false`, changing nothing, if it isn't (before the earliest segment still held, or past the end).
 - Times for `dropAfter`/`skipTo` are on the timeline: the same clock as `playedSeconds`.
-- `suspend()` / `resume()`: pause and resume the `AudioContext`. Scheduled sources are kept.
+- `suspend()` / `resume()`: pause and resume the `AudioContext`. Scheduled sources are kept. All sources play through one `GainNode`. With a fade, `suspend()` ramps the gain to 0, waits, then suspends (only if audio is playing; skipped if `resume()` or `stop()` came during the fade). `resume()` ramps the gain from 0 to 1.
 - `stop()`: stops and drops all sources, clears a requested pause and resets the clock.
 - `onEnded`: callback set by the owner. Called when no scheduled source is left.
 - `onInterruption(interrupted)`: callback set by the owner. `true` when the system stops the audio without being asked, `false` when it runs again.

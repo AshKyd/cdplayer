@@ -35,9 +35,12 @@ const metadataFor = (album: string): DiscMetadata => ({
  * `deliverChunk()`, so a test decides when the drive answers. `disc.toc` is the disc in the drive (`null` is
  * an empty drive) and `lookups.loadMetadata` is what the metadata lookup does.
  */
-const setup = () => {
+const setup = ({ prebufferSeconds = 0, fadeSeconds = 0 } = {}) => {
   const context = new FakeAudioContext();
-  const handler = new WebAudioHandler({ createContext: () => context as unknown as AudioContext });
+  const handler = new WebAudioHandler({
+    createContext: () => context as unknown as AudioContext,
+    fadeSeconds: () => fadeSeconds,
+  });
   const waiting: Array<() => void> = [];
   const requestedUrls: string[] = [];
   const drive = { chunkStatus: 200 };
@@ -67,6 +70,7 @@ const setup = () => {
       return disc.toc;
     },
     loadMetadata: (found) => lookups.loadMetadata(found),
+    prebufferSeconds,
   });
 
   /** Looks at the drive and lets the metadata lookup finish, so the player is ready to play. */
@@ -126,6 +130,124 @@ describe("CDPlayer", () => {
 
       context.sources[0].finish();
       expect(player.status).toBe("ready");
+    });
+  });
+
+  describe("prebuffering", () => {
+    /** A player that waits for 5 s of audio, as in the app. */
+    const withPrebuffer = async () => {
+      const parts = setup({ prebufferSeconds: 5 });
+      await parts.ready();
+      return parts;
+    };
+
+    it("stays silent and loading until 5 s are buffered", async () => {
+      const { player, context, deliverChunk } = await withPrebuffer();
+      void player.play(track);
+
+      // The first chunk is 1 s.
+      await deliverChunk();
+      expect(player.status).toBe("loading");
+      expect(context.state).toBe("suspended");
+
+      // The second is 5 s, making 6 s.
+      await deliverChunk();
+      expect(player.status).toBe("playing");
+      expect(context.state).toBe("running");
+    });
+
+    it("starts a track shorter than 5 s once it is all buffered", async () => {
+      const { player, context, deliverChunk } = await withPrebuffer();
+      void player.play(shortTrack(1));
+
+      await deliverChunk();
+
+      expect(player.status).toBe("playing");
+      expect(context.state).toBe("running");
+    });
+
+    it("waits for the buffer after a restart (seek) as well", async () => {
+      const { player, context, deliverChunk } = await withPrebuffer();
+      void player.play(track);
+      await deliverChunk();
+      await deliverChunk();
+
+      void player.seek(20);
+      await deliverChunk();
+
+      expect(player.status).toBe("loading");
+      expect(context.state).toBe("suspended");
+    });
+
+    it("stays paused if paused while prebuffering, and keeps loading on Play until the buffer is full", async () => {
+      const { player, context, deliverChunk } = await withPrebuffer();
+      void player.play(track);
+      await player.pause();
+
+      // The fetch loop idles while paused, so only the first chunk (1 s) arrives.
+      await deliverChunk();
+      expect(player.status).toBe("paused");
+      expect(context.state).toBe("suspended");
+
+      await player.resume();
+      expect(player.status).toBe("loading");
+      expect(context.state).toBe("suspended");
+
+      await vi.advanceTimersByTimeAsync(250);
+      await deliverChunk();
+      expect(player.status).toBe("playing");
+      expect(context.state).toBe("running");
+    });
+  });
+
+  describe("fading", () => {
+    it("fades out before suspending, and in on resume", async () => {
+      const parts = setup({ fadeSeconds: 0.1 });
+      await parts.ready();
+      const { player, context, deliverChunk } = parts;
+      void player.play(track);
+      await deliverChunk();
+      const [gain] = context.gains;
+
+      const pausing = player.pause();
+      expect(gain.gain.events.at(-1)).toMatchObject({ type: "ramp", value: 0, time: 0.1 });
+      expect(context.state).toBe("running");
+
+      await vi.advanceTimersByTimeAsync(100);
+      await pausing;
+      expect(context.state).toBe("suspended");
+
+      await player.resume();
+      expect(gain.gain.events.slice(-2)).toMatchObject([
+        { type: "set", value: 0 },
+        { type: "ramp", value: 1 },
+      ]);
+    });
+
+    it("doesn't suspend if resumed during the fade-out", async () => {
+      const parts = setup({ fadeSeconds: 0.1 });
+      await parts.ready();
+      const { player, context, deliverChunk } = parts;
+      void player.play(track);
+      await deliverChunk();
+
+      const pausing = player.pause();
+      await player.resume();
+      await vi.advanceTimersByTimeAsync(100);
+      await pausing;
+
+      expect(context.state).toBe("running");
+    });
+
+    it("pauses at once with no ramp when fading is off", async () => {
+      const { player, context, deliverChunk } = current;
+      void player.play(track);
+      await deliverChunk();
+
+      await player.pause();
+
+      expect(context.state).toBe("suspended");
+      expect(context.gains[0].gain.events.every(({ type }) => type === "set")).toBe(true);
     });
   });
 
@@ -511,6 +633,25 @@ describe("CDPlayer", () => {
       expect(parts.player.metadataError).toBe("this disc is not on MusicBrainz");
       expect(parts.player.trackTitle(discTracks[0])).toBe("Track 1");
       expect(parts.player.trackTitle(discTracks[3])).toBe("Data track");
+    });
+
+    it("makes no lookup, and shows no error, when lookups are turned off", async () => {
+      const lookup = vi.fn(async (_toc: Toc) => metadataFor("Never Asked"));
+      const player = new CDPlayer({
+        handler: new WebAudioHandler({ createContext: () => new FakeAudioContext() as unknown as AudioContext }),
+        loadToc: async () => toc,
+        loadMetadata: lookup,
+        isMetadataLookupEnabled: () => false,
+      });
+
+      await player.checkDisc();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(lookup).not.toHaveBeenCalled();
+      expect(player.status).toBe("ready");
+      expect(player.metadata).toBeNull();
+      expect(player.metadataError).toBe("");
+      expect(player.trackTitle(discTracks[0])).toBe("Track 1");
     });
 
     it("ignores a lookup that finishes after the disc was swapped", async () => {
