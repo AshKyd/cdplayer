@@ -19,6 +19,7 @@
   import { wipe } from "$lib/transitions/wipe";
   import { withViewTransition } from "$lib/transitions/withViewTransition";
   import { setWindowFullscreen } from "$lib/window/setWindowFullscreen";
+  import { watchWindowFullscreen } from "$lib/window/watchWindowFullscreen";
 
   const player = new CDPlayer();
 
@@ -29,6 +30,8 @@
     visualiserOnly = enabled;
     setWindowFullscreen(enabled).catch((error) => {
       console.error(JSON.stringify({ message: "Could not change fullscreen", error: String(error) }));
+      // The window didn't change, so don't leave the page showing only the visualiser in a normal window.
+      if (enabled) visualiserOnly = false;
     });
   }
 
@@ -45,7 +48,21 @@
 
   onMount(() => {
     player.start();
-    return () => player.destroy();
+
+    // The OS can leave fullscreen without Escape reaching the page (green button, Ctrl+Cmd+F, another Space),
+    // which would strand the visualiser alone in a normal window. Only a leave is acted on: entering is
+    // asynchronous, so the window isn't fullscreen yet right after the button is pressed.
+    const stopWatchingFullscreen = watchWindowFullscreen((fullscreen) => {
+      if (!fullscreen) visualiserOnly = false;
+    }).catch((error) => {
+      console.error(JSON.stringify({ message: "Could not watch fullscreen", error: String(error) }));
+      return () => {};
+    });
+
+    return () => {
+      player.destroy();
+      void stopWatchingFullscreen.then((stop) => stop());
+    };
   });
 
   const hasPlayableTrack = $derived(player.tracks.some(({ is_audio }) => is_audio));
