@@ -15,6 +15,10 @@ Tauri v2 + SvelteKit audio CD player. See `devdocs/architecture.md` for the over
 - Keep each doc short and plain: purpose, files, API, behaviour, limits.
 - List the components in `devdocs/architecture.md` and link their docs.
 
+## Commits
+
+- Start every commit message with a type prefix: `feat:`, `bug:`, `chore:`, `docs:`, and so on (`refactor:`, `test:`, `style:` when they fit). Use `bug:` rather than `fix:`.
+
 ## Licensing
 
 - The project is ISC. Do not add GPL/LGPL dependencies (check with `cargo deny check licenses` in `src-tauri`).
