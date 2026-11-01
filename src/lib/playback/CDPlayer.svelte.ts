@@ -9,7 +9,18 @@ import {
 } from "./chunks";
 import { WebAudioHandler } from "./WebAudioHandler";
 
-export type PlayerStatus = "idle" | "loading" | "playing" | "paused";
+/**
+ * `loading`: waiting for the first chunk. `buffering`: playing, but the audio ran out before the next
+ * chunk arrived. `paused`: by the user, or by the system interrupting the audio (see `interrupted`).
+ */
+export type PlayerStatus = "idle" | "loading" | "playing" | "buffering" | "paused";
+
+interface Options {
+  /** Does the audio scheduling. Tests pass one built on a fake `AudioContext`. */
+  handler?: WebAudioHandler;
+  /** Fetches one chunk by URL. Tests pass a fake. */
+  fetchChunk?: (url: string) => Promise<Response>;
+}
 
 /** Bytes per CD sector of raw PCM. */
 const SECTOR_BYTES = 2352;
@@ -47,8 +58,15 @@ export class CDPlayer {
    * (buffered ahead for gapless playback) and can't be removed.
    */
   queue = $state<Track[]>([]);
+  /** True while the system has stopped the audio without being asked; press Play to continue. */
+  interrupted = $state(false);
 
-  #handler = new WebAudioHandler();
+  #handler: WebAudioHandler;
+  #fetchChunk: (url: string) => Promise<Response>;
+  /** True once the first chunk of this run has been scheduled. */
+  #startedPlaying = false;
+  /** True when `status` became `paused` because of an interruption, not because the user paused. */
+  #pausedByInterruption = false;
   /** Bumped by every `play()`/`stop()`; an older run sees the change and abandons its work. */
   #runId = 0;
   /** Timeline position of each fetched track. `#spans[i]` belongs to `queue[i]`. */
@@ -60,11 +78,16 @@ export class CDPlayer {
   /** Seconds of audio scheduled so far on the handler's timeline. */
   #scheduledSeconds = 0;
 
-  constructor() {
-    // Segments can run dry mid-queue on a slow read, so only treat it as the end once everything is fetched.
+  constructor({ handler = new WebAudioHandler(), fetchChunk = (url) => fetch(url) }: Options = {}) {
+    this.#handler = handler;
+    this.#fetchChunk = fetchChunk;
+
+    // Segments can run dry mid-queue on a slow read: that is buffering, and only the end once everything is fetched.
     this.#handler.onEnded = () => {
-      if (!this.#fetching) this.stop();
+      if (!this.#fetching) return this.stop();
+      if (this.status === "playing") this.status = "buffering";
     };
+    this.#handler.onInterruption = (interrupted) => this.#handleInterruption(interrupted);
   }
 
   /** Stops whatever is playing, then plays `track` from `timeSeconds`. */
@@ -105,22 +128,54 @@ export class CDPlayer {
     this.status = "idle";
     this.trackNumber = null;
     this.positionSeconds = 0;
+    this.interrupted = false;
+    this.#startedPlaying = false;
+    this.#pausedByInterruption = false;
   }
 
+  /** Pauses from any active state, including `loading`: the first chunk then waits, silent, until `resume()`. */
   async pause(): Promise<void> {
-    if (this.status !== "playing") return;
+    if (this.status !== "loading" && this.status !== "buffering" && this.status !== "playing") return;
     this.status = "paused";
     await this.#handler.suspend();
   }
 
   async resume(): Promise<void> {
     if (this.status !== "paused") return;
+    // The user pressing Play takes over from an interruption.
+    this.#pausedByInterruption = false;
+    this.interrupted = false;
     await this.#handler.resume();
-    this.status = "playing";
+    if (this.status === "paused") this.status = this.#statusAfterPause();
   }
 
   togglePause(): Promise<void> {
     return this.status === "paused" ? this.resume() : this.pause();
+  }
+
+  /** What the player was doing before a pause, worked out from the audio rather than remembered. */
+  #statusAfterPause(): PlayerStatus {
+    if (this.#handler.hasQueuedAudio) return "playing";
+    return this.#startedPlaying ? "buffering" : "loading";
+  }
+
+  #markPlaying(): void {
+    this.#startedPlaying = true;
+    if (this.status === "loading" || this.status === "buffering") this.status = "playing";
+  }
+
+  /** Pauses (and later resumes) when the system stops and restarts the audio, without touching a user's own pause. */
+  #handleInterruption(interrupted: boolean): void {
+    this.interrupted = interrupted;
+
+    if (interrupted) {
+      if (this.status !== "playing" && this.status !== "buffering") return;
+      this.#pausedByInterruption = true;
+      this.status = "paused";
+      return;
+    }
+    if (this.#pausedByInterruption && this.status === "paused") this.status = this.#statusAfterPause();
+    this.#pausedByInterruption = false;
   }
 
   #start(tracks: Track[], timeSeconds: number): Promise<void> {
@@ -177,7 +232,7 @@ export class CDPlayer {
       }
 
       const sectorCount = nextChunkSectorCount(track, cursorSector, isFirstChunk);
-      const response = await fetch(chunkUrl(track.number, cursorSector, sectorCount));
+      const response = await this.#fetchChunk(chunkUrl(track.number, cursorSector, sectorCount));
       const body = await response.arrayBuffer();
       if (runId !== this.#runId) return;
       if (!response.ok) throw new Error(`${response.status}: ${new TextDecoder().decode(body)}`);
@@ -198,7 +253,7 @@ export class CDPlayer {
       this.#handler.appendSegment(body);
       this.#scheduledSeconds += sectorsRead / SECTORS_PER_SECOND;
       cursorSector += sectorsRead;
-      if (this.status === "loading") this.status = "playing";
+      this.#markPlaying();
       isFirstChunk = false;
     }
   }
@@ -207,7 +262,7 @@ export class CDPlayer {
   #trackPosition(runId: number): void {
     const tick = () => {
       if (runId !== this.#runId) return;
-      if (this.status === "playing") this.#syncPosition();
+      if (this.status === "playing" || this.status === "buffering") this.#syncPosition();
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);

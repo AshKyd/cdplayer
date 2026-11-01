@@ -59,7 +59,7 @@
   </button>
 
   <section class="transport">
-    <button onclick={() => player.togglePause()} disabled={player.status !== "playing" && player.status !== "paused"}>
+    <button onclick={() => player.togglePause()} disabled={player.status === "idle"}>
       {player.status === "paused" ? "Play" : "Pause"}
     </button>
     <button onclick={() => player.stop()} disabled={player.status === "idle"}>Stop</button>
@@ -80,6 +80,9 @@
     <button onclick={() => player.next()} disabled={player.queue.length < 2}>Next</button>
     <button onclick={() => player.clearQueue()} disabled={player.queue.length < 2}>Clear queue</button>
   </section>
+  {#if player.interrupted}
+    <p class="warning">Audio output was interrupted. Press Play to continue.</p>
+  {/if}
   {#if player.unreadableSectors > 0}
     <p class="warning">
       {player.unreadableSectors} unreadable sector{player.unreadableSectors === 1 ? "" : "s"} played as silence

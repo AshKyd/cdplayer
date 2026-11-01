@@ -6,6 +6,11 @@ const SAMPLE_RATE = 44100;
 /** Small start delay so the first segment is scheduled in the future, not at a time already passed. */
 const START_DELAY_SECONDS = 0.05;
 
+interface Options {
+  /** Makes the `AudioContext`. Tests pass a fake. */
+  createContext?: () => AudioContext;
+}
+
 /**
  * Schedules PCM segments back to back on a Web Audio clock. It knows nothing about where the audio
  * comes from (CD sectors, MP3 files), so any source can feed it.
@@ -16,16 +21,68 @@ const START_DELAY_SECONDS = 0.05;
 export class WebAudioHandler {
   /** Called once every scheduled segment has finished playing. */
   onEnded: () => void = () => {};
+  /**
+   * Called with `true` when the system stops the audio without being asked (sleep, an output device
+   * change) and with `false` when it runs again. The handler tries to resume by itself; if the webview
+   * needs a user gesture first, the owner's `resume()` from a click does it.
+   */
+  onInterruption: (interrupted: boolean) => void = () => {};
 
+  #createContext: () => AudioContext;
   #context: AudioContext | null = null;
   #sources = new Set<AudioBufferSourceNode>();
   #baseTime = 0;
   #scheduledFrames = 0;
   #playedBeforeBase = 0;
+  /** True from `suspend()` until `resume()`/`stop()`. A suspended context is only an interruption when this is false. */
+  #suspendRequested = false;
+  #interrupted = false;
+
+  constructor({ createContext = () => new AudioContext({ sampleRate: SAMPLE_RATE }) }: Options = {}) {
+    this.#createContext = createContext;
+  }
 
   #getContext(): AudioContext {
-    this.#context ??= new AudioContext({ sampleRate: SAMPLE_RATE });
-    return this.#context;
+    if (this.#context) return this.#context;
+
+    const context = this.#createContext();
+    this.#context = context;
+    context.addEventListener("statechange", () => this.#handleStateChange(context));
+    // Honour a pause requested before the first segment arrived; otherwise make sure it is running,
+    // since a context made outside a user gesture can start suspended.
+    void (this.#suspendRequested ? context.suspend() : context.resume()).catch(() => {});
+    return context;
+  }
+
+  #handleStateChange({ state }: AudioContext): void {
+    if (state === "running") {
+      if (!this.#interrupted) return;
+      this.#interrupted = false;
+      this.onInterruption(false);
+      return;
+    }
+    if (this.#suspendRequested || state === "closed") return;
+
+    if (!this.#interrupted) {
+      this.#interrupted = true;
+      this.onInterruption(true);
+    }
+    void this.#context?.resume().catch(() => {});
+  }
+
+  /** True while at least one segment is scheduled and hasn't finished. */
+  get hasQueuedAudio(): boolean {
+    return this.#sources.size > 0;
+  }
+
+  /**
+   * How long audio takes to get from the context to the speakers. `outputLatency` is the real figure
+   * (large on Bluetooth) but not every webview has it; `baseLatency` is the fallback.
+   */
+  get latencySeconds(): number {
+    if (!this.#context) return 0;
+    const { outputLatency, baseLatency } = this.#context;
+    return [outputLatency, baseLatency].find((latency) => Number.isFinite(latency) && latency > 0) ?? 0;
   }
 
   /** Seconds of audio scheduled but not yet played. */
@@ -35,10 +92,14 @@ export class WebAudioHandler {
     return Math.max(0, scheduledEnd - this.#context.currentTime);
   }
 
-  /** Seconds played since the first segment. Stays put while suspended. */
+  /**
+   * Seconds heard since the first segment, i.e. what has reached the speakers, so it lags the context clock
+   * by the output latency. Stays put while suspended.
+   */
   get playedSeconds(): number {
     if (!this.#context || this.#scheduledFrames === 0) return 0;
-    const played = this.#context.currentTime - this.#baseTime;
+    const heardTime = this.#context.currentTime - this.latencySeconds;
+    const played = heardTime - this.#baseTime;
     return this.#playedBeforeBase + Math.min(Math.max(0, played), this.#scheduledFrames / SAMPLE_RATE);
   }
 
@@ -75,11 +136,14 @@ export class WebAudioHandler {
     this.#scheduledFrames += buffer.length;
   }
 
+  /** Pauses. Works before the first segment too: the context is then created already suspended. */
   suspend(): Promise<void> {
+    this.#suspendRequested = true;
     return this.#context?.suspend() ?? Promise.resolve();
   }
 
   resume(): Promise<void> {
+    this.#suspendRequested = false;
     return this.#context?.resume() ?? Promise.resolve();
   }
 
@@ -96,6 +160,7 @@ export class WebAudioHandler {
     this.#baseTime = 0;
     this.#playedBeforeBase = 0;
     // A suspended context would delay the next play; make sure it is running again.
-    this.#context?.resume();
+    this.#suspendRequested = false;
+    void this.#context?.resume().catch(() => {});
   }
 }
