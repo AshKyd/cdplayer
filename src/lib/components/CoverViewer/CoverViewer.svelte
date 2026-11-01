@@ -37,7 +37,10 @@
     inset: 0;
     z-index: 10;
     display: grid;
+    /* Without a definite track size the row grows to the image's natural height (large for original-quality covers), pushing it off screen. */
+    grid-template: minmax(0, 1fr) / minmax(0, 1fr);
     place-items: center;
+    box-sizing: border-box;
     padding: 32px;
     overflow: hidden;
     background: var(--akui-bg);
@@ -56,6 +59,8 @@
 
   .cover {
     position: relative;
+    min-width: 0;
+    min-height: 0;
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
