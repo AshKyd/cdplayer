@@ -31,6 +31,8 @@ interface Options {
   loadMetadata?: (toc: Toc) => Promise<DiscMetadata>;
   /** Whether to look discs up at all; defaults to the MusicBrainz setting. Tests pass a fake. */
   isMetadataLookupEnabled?: () => boolean;
+  /** Whether to play a disc as soon as it is ready; defaults to the autoplay setting. Tests pass a fake. */
+  isAutoplayEnabled?: () => boolean;
   /** Time between checks for a new or removed disc, while nothing is playing. */
   discCheckIntervalMs?: number;
   /** Seconds of audio to hold back before a run starts sounding; defaults to `PREBUFFER_SECONDS`. */
@@ -114,6 +116,7 @@ export class CDPlayer {
   #fetchChunk: (url: string) => Promise<Response>;
   #loadMetadata: (toc: Toc) => Promise<DiscMetadata>;
   #isMetadataLookupEnabled: () => boolean;
+  #isAutoplayEnabled: () => boolean;
   #baseUrl: string;
   /** Bumped for every disc found or removed, so a lookup for an earlier disc is ignored when it finishes. */
   #discToken = 0;
@@ -145,6 +148,7 @@ export class CDPlayer {
     loadToc,
     loadMetadata = (toc) => lookupDiscMetadata(toc),
     isMetadataLookupEnabled = () => settings.musicBrainzEnabled,
+    isAutoplayEnabled = () => settings.autoplayEnabled,
     discCheckIntervalMs,
   }: Options = {}) {
     this.#handler = handler;
@@ -153,6 +157,7 @@ export class CDPlayer {
     this.#baseUrl = baseUrl;
     this.#loadMetadata = loadMetadata;
     this.#isMetadataLookupEnabled = isMetadataLookupEnabled;
+    this.#isAutoplayEnabled = isAutoplayEnabled;
 
     // The drive is left alone while audio is active: re-opening it would cut off reads.
     this.#watcher = new DiscWatcher({
@@ -380,6 +385,7 @@ export class CDPlayer {
   async #lookUpMetadata(toc: Toc, token: number): Promise<void> {
     if (!this.#isMetadataLookupEnabled()) {
       this.#dispatch({ type: "metadataSettled" });
+      this.#autoplayIfEnabled();
       return;
     }
     const result = await this.#loadMetadata(toc).then(
@@ -391,6 +397,13 @@ export class CDPlayer {
     this.metadata = result.metadata;
     this.metadataError = result.error;
     this.#dispatch({ type: "metadataSettled" });
+    this.#autoplayIfEnabled();
+  }
+
+  /** Plays the disc from the first track once it is ready (after the metadata lookup, so titles are in place). */
+  #autoplayIfEnabled(): void {
+    if (this.status !== "ready" || !this.#isAutoplayEnabled()) return;
+    void this.playPause();
   }
 
   /** Stops the audio and forgets the queue, without changing `status` (the caller does that). */

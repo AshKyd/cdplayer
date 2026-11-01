@@ -654,6 +654,22 @@ describe("CDPlayer", () => {
       expect(player.trackTitle(discTracks[0])).toBe("Track 1");
     });
 
+    it.each([true, false])("plays the disc once it is ready only when autoplay is on (%s)", async (autoplay) => {
+      const player = new CDPlayer({
+        handler: new WebAudioHandler({ createContext: () => new FakeAudioContext() as unknown as AudioContext }),
+        fetchChunk: async () => new Response(new ArrayBuffer(2352 * 75)),
+        loadToc: async () => toc,
+        loadMetadata: async () => metadataFor("First Album"),
+        isAutoplayEnabled: () => autoplay,
+      });
+
+      await player.checkDisc();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(player.trackNumber).toBe(autoplay ? discTracks[0].number : null);
+      expect(player.status === "ready").toBe(!autoplay);
+    });
+
     it("ignores a lookup that finishes after the disc was swapped", async () => {
       const parts = setup();
       const pending = heldLookups(parts);
