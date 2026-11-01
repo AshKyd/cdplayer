@@ -118,12 +118,9 @@
     object-fit: cover;
   }
 
+  /* Fills the fixed-width album block, so the text is fitted to the same width for every disc. */
   .text {
+    flex: 1;
     min-width: 0;
-  }
-
-  /* Roughly the width of a short album name, so the controls beside it don't jump when a disc appears. */
-  .text.placeholder {
-    min-width: 8rem;
   }
 </style>

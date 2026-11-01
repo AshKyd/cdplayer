@@ -217,13 +217,13 @@
     padding-block: 1rem;
   }
 
-  /* As wide as the title or artist needs, up to the max; longer text is scaled down to fit. */
+  /* Fixed width so the controls don't shift between discs; longer text wraps to two lines, then scales down to fit. */
   .album {
     /* The old and new album share one cell while they wipe, so they overlap instead of stacking. */
     display: grid;
-    flex: 0 1 auto;
+    flex: 0 1 16rem;
     min-width: 0;
-    max-width: 20rem;
+    width: 16rem;
   }
 
   .album-slot {
@@ -253,7 +253,8 @@
 
     .album {
       order: 1;
-      max-width: 100%;
+      width: 100%;
+      flex-basis: 100%;
     }
   }
 

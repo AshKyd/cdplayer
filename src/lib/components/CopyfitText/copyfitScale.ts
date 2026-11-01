@@ -1,8 +1,11 @@
 /**
- * How much to shrink text so it fits: 1 when it already fits, down to `minScale` (below that it is
- * clipped with an ellipsis instead of becoming unreadable).
+ * The largest scale (1 down to `minScale`, in `step`s) at which the text fits. Below `minScale` the text
+ * is clipped with an ellipsis instead of becoming unreadable.
+ * @param fitsAtScale Applies the scale to the text and reports whether it fits its box.
  */
-export function copyfitScale(availableWidth: number, naturalWidth: number, minScale: number): number {
-  if (naturalWidth <= 0 || availableWidth >= naturalWidth) return 1;
-  return Math.max(minScale, availableWidth / naturalWidth);
+export function copyfitScale(fitsAtScale: (scale: number) => boolean, minScale: number, step = 0.05): number {
+  const steps = Math.max(0, Math.floor((1 - minScale) / step + 1e-9));
+  const scales = Array.from({ length: steps + 1 }, (_, index) => Number((1 - index * step).toFixed(4)));
+  const fitting = scales.find(fitsAtScale);
+  return fitting ?? Math.min(1, minScale);
 }
