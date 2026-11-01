@@ -3,10 +3,9 @@ export interface PaletteSwatch {
   rgb: [number, number, number];
   /** Hue 0–1, saturation 0–1, lightness 0–1. */
   hsl: [number, number, number];
+  /** How many sampled pixels fall in this colour cluster. */
   population: number;
 }
-
-export type CoverPalette = Partial<Record<string, PaletteSwatch | null>>;
 
 /** A colour in the form akui themes by: OKLCH hue (degrees) and chroma. */
 export interface CoverColour {
@@ -21,14 +20,17 @@ export interface CoverColours {
 }
 
 /** Below this HSL saturation a swatch is grey, and tinting the whole UI with it would look like a mistake. */
-const MIN_SATURATION = 0.2;
+const MIN_SATURATION = 0.25;
+/** Near-black and near-white clusters carry no usable hue, whatever their saturation says. */
+const LIGHTNESS_RANGE = { min: 0.12, max: 0.88 };
 /** akui's accent is a flat colour, so very faint or very loud chroma looks washed out or garish. */
 const CHROMA_RANGE = { min: 0.09, max: 0.22 };
 /** The secondary colour must differ in hue by at least this much, or it adds nothing. */
 const MIN_HUE_SEPARATION_DEGREES = 40;
-
-/** Vibrant first: it is the most saturated, which reads best as an accent. Muted swatches are the fallback. */
-const PRIMARY_PREFERENCE = ["Vibrant", "DarkVibrant", "LightVibrant", "Muted", "DarkMuted", "LightMuted"];
+/** A secondary colour must cover at least this share of the primary's weight, so a small accent isn't promoted. */
+const MIN_SECONDARY_WEIGHT_SHARE = 0.4;
+/** Shades of one colour are merged into hue bands this wide, so a big blue area isn't split into rival clusters. */
+const HUE_BAND_DEGREES = 30;
 
 const toLinear = (channel: number) => {
   const unit = channel / 255;
@@ -58,32 +60,55 @@ export const isCoverColours = (value: unknown): value is CoverColours => {
   return isCoverColour(primary) && (secondary === null || isCoverColour(secondary));
 };
 
-const hueDistance =(first: number, second: number) => {
+const hueDistance = (first: number, second: number) => {
   const difference = Math.abs(first - second) % 360;
   return Math.min(difference, 360 - difference);
 };
 
-const toCoverColour = ({ rgb }: PaletteSwatch): CoverColour => {
-  const { hue, chroma } = rgbToOklch(rgb);
-  return { hue, chroma: Math.min(CHROMA_RANGE.max, Math.max(CHROMA_RANGE.min, chroma)) };
-};
+const clampChroma = ({ hue, chroma }: CoverColour): CoverColour => ({
+  hue,
+  chroma: Math.min(CHROMA_RANGE.max, Math.max(CHROMA_RANGE.min, chroma)),
+});
+
+interface HueBand {
+  /** Population × saturation of every swatch in the band. Big, vivid areas outweigh small ones. */
+  weight: number;
+  /** The most common swatch in the band, which stands for the band's colour. */
+  representative: PaletteSwatch;
+}
 
 /**
- * Picks one or two theme colours from a node-vibrant palette.
- * Returns `null` for greyscale or empty palettes so the app keeps its normal theme.
+ * Picks one or two theme colours from node-vibrant's raw colour clusters.
+ *
+ * We don't use Vibrant's named swatches (Vibrant, Muted…). Each name holds the single most saturated colour for its
+ * lightness, regardless of area, so a small orange hand beats a large blue object. Instead, similar hues are merged
+ * and ranked by area × saturation, so the colour that dominates the cover wins.
+ *
+ * Returns `null` for greyscale covers, so the app keeps its normal theme.
  */
-export function pickCoverColours(palette: CoverPalette): CoverColours | null {
-  const colourful = PRIMARY_PREFERENCE.map((name) => palette[name]).filter(
-    (swatch): swatch is PaletteSwatch => Boolean(swatch) && swatch!.hsl[1] >= MIN_SATURATION,
+export function pickCoverColours(swatches: PaletteSwatch[]): CoverColours | null {
+  const bands = swatches
+    .filter(({ hsl: [, saturation, lightness] }) => {
+      return saturation >= MIN_SATURATION && lightness >= LIGHTNESS_RANGE.min && lightness <= LIGHTNESS_RANGE.max;
+    })
+    .reduce((bandsByIndex, swatch) => {
+      const band = Math.floor(rgbToOklch(swatch.rgb).hue / HUE_BAND_DEGREES);
+      const existing = bandsByIndex.get(band);
+      const weight = (existing?.weight ?? 0) + swatch.population * swatch.hsl[1];
+      const representative =
+        existing && existing.representative.population >= swatch.population ? existing.representative : swatch;
+      return bandsByIndex.set(band, { weight, representative });
+    }, new Map<number, HueBand>());
+
+  const [strongest, ...rest] = [...bands.values()].sort((first, second) => second.weight - first.weight);
+  if (!strongest) return null;
+
+  const primary = clampChroma(rgbToOklch(strongest.representative.rgb));
+  const secondaryBand = rest.find(
+    ({ weight, representative }) =>
+      weight >= strongest.weight * MIN_SECONDARY_WEIGHT_SHARE &&
+      hueDistance(rgbToOklch(representative.rgb).hue, primary.hue) >= MIN_HUE_SEPARATION_DEGREES,
   );
-  const [primarySwatch, ...others] = colourful;
-  if (!primarySwatch) return null;
 
-  const primary = toCoverColour(primarySwatch);
-  // The most common colour that is not just a shade of the primary.
-  const secondarySwatch = others
-    .filter((swatch) => hueDistance(toCoverColour(swatch).hue, primary.hue) >= MIN_HUE_SEPARATION_DEGREES)
-    .sort((first, second) => second.population - first.population)[0];
-
-  return { primary, secondary: secondarySwatch ? toCoverColour(secondarySwatch) : null };
+  return { primary, secondary: secondaryBand ? clampChroma(rgbToOklch(secondaryBand.representative.rgb)) : null };
 }

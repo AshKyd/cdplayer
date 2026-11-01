@@ -18,12 +18,12 @@ export async function extractCoverColours(coverUrl: string | null | undefined): 
   if (!blob) return null;
 
   const blobUrl = URL.createObjectURL(blob);
-  return Vibrant.from(blobUrl)
-    // Albums are big images; a small sample is plenty for dominant colours and keeps the UI thread free.
-    .maxColorCount(64)
-    .quality(5)
+  // Albums are big images; a small sample is plenty for dominant colours and keeps the UI thread free.
+  const vibrant = Vibrant.from(blobUrl).maxColorCount(64).quality(5).build();
+  return vibrant
     .getPalette()
-    .then(pickCoverColours)
+    // The raw clusters, not the palette: see `pickCoverColours` for why the named swatches aren't used.
+    .then(() => pickCoverColours(vibrant.result?.colors ?? []))
     .catch((reason) => {
       console.warn(JSON.stringify({ message: "Could not read cover colours", coverUrl, error: String(reason) }));
       return null;

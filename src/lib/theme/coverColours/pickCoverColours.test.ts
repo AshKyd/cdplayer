@@ -1,11 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { pickCoverColours, rgbToOklch, type PaletteSwatch } from "./pickCoverColours";
 
-const swatch = (rgb: [number, number, number], saturation: number, population = 100): PaletteSwatch => ({
-  rgb,
-  hsl: [0, saturation, 0.5],
-  population,
-});
+/** A cluster of `population` pixels of the given colour; saturation and lightness are set to describe it. */
+const swatch = (
+  rgb: [number, number, number],
+  population: number,
+  saturation = 0.7,
+  lightness = 0.5,
+): PaletteSwatch => ({ rgb, hsl: [0, saturation, lightness], population });
+
+const BLUE: [number, number, number] = [60, 70, 210];
+const ORANGE: [number, number, number] = [240, 130, 30];
+const RED: [number, number, number] = [220, 40, 40];
+const DARK_RED: [number, number, number] = [150, 25, 25];
+const GREY: [number, number, number] = [200, 200, 200];
 
 describe("rgbToOklch", () => {
   it("puts pure red near hue 29° and pure blue near 264°", () => {
@@ -19,39 +27,44 @@ describe("rgbToOklch", () => {
 });
 
 describe("pickCoverColours", () => {
-  it("returns null for an empty palette", () => {
-    expect(pickCoverColours({})).toBeNull();
+  it("returns null with no swatches", () => {
+    expect(pickCoverColours([])).toBeNull();
   });
 
-  it("returns null when every swatch is grey", () => {
-    expect(pickCoverColours({ Vibrant: swatch([120, 120, 120], 0.02), Muted: swatch([60, 60, 60], 0.05) })).toBeNull();
+  it("returns null when every swatch is grey, black or white", () => {
+    expect(
+      pickCoverColours([swatch(GREY, 900, 0.02), swatch([5, 5, 5], 500, 0.9, 0.02), swatch([250, 250, 250], 500, 0.9, 0.97)]),
+    ).toBeNull();
   });
 
-  it("prefers Vibrant as the primary and skips missing swatches", () => {
-    const result = pickCoverColours({
-      Vibrant: null,
-      DarkVibrant: swatch([200, 30, 30], 0.7),
-      Muted: swatch([30, 30, 200], 0.6),
-    });
-    expect(result?.primary.hue).toBeCloseTo(rgbToOklch([200, 30, 30]).hue);
+  it("picks the large blue area over a small, more saturated orange one", () => {
+    const result = pickCoverColours([swatch(GREY, 5000, 0.03), swatch(BLUE, 1200, 0.6), swatch(ORANGE, 80, 0.9)]);
+    expect(result?.primary.hue).toBeCloseTo(rgbToOklch(BLUE).hue);
   });
 
-  it("picks a second colour only when its hue is clearly different", () => {
-    const sameHue = pickCoverColours({
-      Vibrant: swatch([220, 40, 40], 0.7),
-      DarkVibrant: swatch([140, 20, 20], 0.7),
-    });
-    expect(sameHue?.secondary).toBeNull();
+  it("merges shades of one hue, so they outweigh a single bigger cluster of another", () => {
+    const result = pickCoverColours([
+      swatch(RED, 400),
+      swatch(DARK_RED, 400),
+      swatch([230, 60, 50], 300),
+      swatch(BLUE, 600),
+    ]);
+    expect(Math.abs(result!.primary.hue - rgbToOklch(RED).hue)).toBeLessThan(15);
+  });
 
-    const differentHue = pickCoverColours({
-      Vibrant: swatch([220, 40, 40], 0.7),
-      Muted: swatch([40, 60, 220], 0.6),
-    });
-    expect(differentHue?.secondary?.hue).toBeCloseTo(rgbToOklch([40, 60, 220]).hue);
+  it("offers a second colour only when it is a different hue and big enough", () => {
+    const similar = pickCoverColours([swatch(RED, 1000), swatch(DARK_RED, 900)]);
+    expect(similar?.secondary).toBeNull();
+
+    const tiny = pickCoverColours([swatch(BLUE, 1000), swatch(ORANGE, 100)]);
+    expect(tiny?.secondary).toBeNull();
+
+    const real = pickCoverColours([swatch(BLUE, 1000), swatch(ORANGE, 700)]);
+    expect(real?.secondary?.hue).toBeCloseTo(rgbToOklch(ORANGE).hue);
   });
 
   it("clamps chroma into a range that suits an accent", () => {
-    const result = pickCoverColours({ Vibrant: swatch([255, 0, 0], 1) });
+    const result = pickCoverColours([swatch([255, 0, 0], 100, 1)]);
     expect(result?.primary.chroma).toBeLessThanOrEqual(0.22);
     expect(result?.primary.chroma).toBeGreaterThanOrEqual(0.09);
   });

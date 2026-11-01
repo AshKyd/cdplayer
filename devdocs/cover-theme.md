@@ -17,8 +17,10 @@ Re-colours the UI from the album cover. Runs entirely in the webview (JS); no Ru
 ## Behaviour
 
 - The cover is fetched as a blob and given to Vibrant as an object URL, so cross-origin covers do not taint the canvas.
-- Primary is the first colourful swatch of Vibrant, DarkVibrant, LightVibrant, Muted, DarkMuted, LightMuted.
-- Secondary is the most common remaining swatch with a hue at least 40° from the primary, else `null`.
+- Vibrant's named swatches (Vibrant, Muted…) are not used: each is the most saturated colour for its lightness whatever its area, so a small orange hand beat a large blue object. We read the raw clusters (`vibrant.result.colors`) instead.
+- Grey, near-black and near-white clusters are dropped. The rest are grouped into 30° hue bands and each band is weighted by population × saturation.
+- Primary is the heaviest band's most common colour.
+- Secondary is the next band that is at least 40° away in hue and at least 40% of the primary's weight, else `null`.
 - `CoverTheme` writes the result to `settings.coverColours` (saved and synced, see [settings.md](settings.md)). The saved colours stay (so the app opens tinted) while the disc is being read. After that they are replaced, or set to `null` when there is no cover or it is greyscale or fails.
 - `CoverAccent` sets the primary as the `svelte-akui` accent (`themeStore.setAccent`, not persisted). akui's `--akui-hue` and `--akui-chroma` also tint the neutrals.
 - `CoverAccent` also sets `--cover-primary` and `--cover-secondary` on `<html>`.
