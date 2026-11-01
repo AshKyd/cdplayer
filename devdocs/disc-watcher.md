@@ -6,15 +6,15 @@ Finds out which disc is in the drive by asking for its TOC at an interval, and r
 
 - `src/lib/disc/DiscWatcher.svelte.ts`: the class (Svelte 5 runes).
 - `src/lib/disc/tocFingerprint.ts`: `tocFingerprint(toc | null)`, a string that is the same for the same disc and different for another disc (every track's sectors and type, plus the lead-out). `null` (no disc) has its own value.
-- Used by `src/routes/+page.svelte`.
+- Owned by `CDPlayer` ([cd-player.md](cd-player.md)), which makes it, starts it and reacts to its changes. The page does not use it directly.
 
 ## API
 
 - `new DiscWatcher({ loadToc, isBusy, intervalMs, onChange })`. All options are optional.
   - `loadToc`: reads the TOC. Defaults to `invoke("get_toc")`. Tests pass a fake.
-  - `isBusy`: true while the drive is in use. The page passes `player.status !== "idle"`.
+  - `isBusy`: true while the drive is in use. `CDPlayer` passes whether audio is active (loading, playing, buffering or paused).
   - `intervalMs`: time between checks. Default 3000.
-  - `onChange(toc | null)`: called when the disc changes. The page calls `player.stop()`.
+  - `onChange(toc | null)`: called when the disc changes. `CDPlayer` tears down playback and sends `discInserted` or `discRemoved` ([player-lifecycle.md](player-lifecycle.md)).
 - State: `toc`, `error` (why there is no disc, or empty), `checking`.
 - `start()`: checks now, then every `intervalMs`. `stop()`.
 - `checkNow()`: one check. Does nothing while busy or while another check is running.
@@ -24,8 +24,7 @@ Finds out which disc is in the drive by asking for its TOC at an interval, and r
 - A change is a different fingerprint from the last check. The first check always counts as a change, and so does the first "no disc".
 - `error` is updated on every check, but `onChange` is only called on a change, so an empty drive is reported once.
 - Checks are skipped while `isBusy()` is true. Re-opening the drive during playback would cut off reads.
-- The page also calls `checkNow()` when `CDPlayer.error` is set. A failed read while playing usually means the disc was ejected, and playback has already stopped, so the watcher is free to look.
-- The page's "Check for disc" button calls `checkNow()`.
+- `CDPlayer` calls `checkNow()` (as `checkDisc()`) when a chunk read fails. That usually means the disc was ejected, and playback has already stopped, so the watcher is free to look.
 
 ## Limits
 

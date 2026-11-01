@@ -7,7 +7,7 @@ This document outlines the architecture for a cross-platform (macOS, Windows, Li
 
 The system is divided into a Rust backend managing hardware access and a Web frontend handling audio routing and UI, communicating via Tauri's custom protocol.
 
-**Design principle: keep it a JS app.** Rust only does what JS cannot: talk to the drive (read the TOC, read sectors, re-open the drive). State, timing, polling, queueing and decisions live in JS. When a feature can be done in either, do it in JS. For example, disc insert/eject detection is a JS poll ([disc-watcher.md](disc-watcher.md)) over one thin Rust command.
+**Design principle: keep it a JS app.** Rust only does what JS cannot: talk to the drive (read the TOC, read sectors, re-open the drive). State, timing, polling, queueing and decisions live in JS. When a feature can be done in either, do it in JS. For example, disc insert/eject detection is a JS poll ([disc-watcher.md](disc-watcher.md)) over one thin Rust command, and the MusicBrainz disc ID and lookup are JS ([musicbrainz.md](musicbrainz.md)).
 
 ```text
 [ Physical Audio CD ]
@@ -47,8 +47,10 @@ The frontend handles playback, gapless transitions, and visualizations, treating
 * **Buffer Management:** Holds a rolling lead of about 30 s of decoded `AudioBuffer` chunks ahead of the playhead, regardless of track length (about 10 MB as Float32). Played chunks are dropped. Memory use is constant; it does not grow with track length.
 * **AnalyserNode:** Intercepts the audio graph to provide real-time frequency (FFT) and waveform data to the visualizer.
 * **UI & Visualizer:** Svelte 5 (runes). Playback state lives in the `CDPlayer` class ([cd-player.md](cd-player.md), `src/lib/playback/CDPlayer.svelte.ts`), exposing `$state` for the track, position and status. The UI components read that state. The visualizer is a `<canvas>` component driven by `requestAnimationFrame`.
-* **Window UI:** Built with the svelte-akui library: a `DetailsTable` track list, icon transport buttons and a seek bar ([ui.md](ui.md)). The components show state and report clicks; the logic stays in `CDPlayer` and `DiscWatcher`.
-* **Disc detection:** The `DiscWatcher` class ([disc-watcher.md](disc-watcher.md)) polls for the disc while idle and stops playback when it changes.
+* **Player lifecycle:** `CDPlayer` is one state machine from no disc, through looking up the disc's metadata, to playing ([player-lifecycle.md](player-lifecycle.md)). Each step only happens in a state that allows it.
+* **Disc detection:** The `DiscWatcher` class ([disc-watcher.md](disc-watcher.md)), owned by `CDPlayer`, polls for the disc while no audio is active and reports when it changes.
+* **Metadata:** Track names, artist and cover come from MusicBrainz and the Cover Art Archive ([musicbrainz.md](musicbrainz.md)), looked up in JS by the disc ID computed from the TOC.
+* **Window UI:** Built with the svelte-akui library: a `DetailsTable` track list, an album header, icon transport buttons and a seek bar ([ui.md](ui.md)). The components show `CDPlayer`'s state and send it commands.
 * **Audio scheduling:** The `WebAudioHandler` class ([web-audio-handler.md](web-audio-handler.md)) appends PCM segments to the playback buffer and owns the `AudioContext`.
 * **Source / engine split:** MP3 CDs will be supported later using the same architecture. A source (`CDPlayer` for audio CDs, an MP3 source later) reads or decodes audio into PCM and feeds it to `WebAudioHandler`. `WebAudioHandler` knows nothing about CDs or sectors, so the Web Audio code and the CD playback code must stay separate.
 
@@ -94,8 +96,8 @@ Because CD tracks are split precisely on sample boundaries and every chunk is pl
 * Create a `<canvas>` visualizer polling frequency data (`getByteFrequencyData`) via a `requestAnimationFrame` loop.
 
 ### Phase 4: Metadata & Polish
-* Implement MusicBrainz DiscID calculation in Rust using the extracted TOC LBA offsets.
-* Fetch album art and tracklists from the MusicBrainz/Cover Art Archive APIs.
+* ~~MusicBrainz DiscID calculation~~ Done, in JS rather than Rust (`crypto.subtle` over the TOC we already have), following "keep it a JS app" ([musicbrainz.md](musicbrainz.md)).
+* ~~Fetch album art and tracklists from the MusicBrainz/Cover Art Archive APIs~~ Done in JS: the first matching release's names and front cover, cached by disc ID. `CDPlayer` runs the lookup in its `loadingMetadata` state. Still to do: choosing between several matching releases, and a custom `User-Agent`.
 * ~~Optical drive polling~~ Done: the JS `DiscWatcher` polls `get_toc` for insertion/ejection ([disc-watcher.md](disc-watcher.md)). Native OS notifications (DiskArbitration, `WM_DEVICECHANGE`, udev) are not used, to keep this one cross-platform code path.
 
 ## 6. Known Issues to Solve

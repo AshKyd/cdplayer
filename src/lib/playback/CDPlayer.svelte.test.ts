@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Track } from "$lib/disc/types";
+import type { Toc, Track } from "$lib/disc/types";
+import type { DiscMetadata } from "$lib/metadata/types";
 import { CDPlayer } from "./CDPlayer.svelte";
 import { FakeAudioContext } from "./FakeAudioContext.testing";
 import { WebAudioHandler } from "./WebAudioHandler";
@@ -8,19 +9,43 @@ import { WebAudioHandler } from "./WebAudioHandler";
 const track: Track = { number: 1, first_sector: 0, last_sector: 2999, is_audio: true };
 const SECTOR_BYTES = 2352;
 
+/** 50 sectors: 0.67 s, fetched in one chunk. */
+const shortTrack = (number: number): Track => ({ number, first_sector: 0, last_sector: 49, is_audio: true });
+
+/** The disc in the drive: a long track, two short ones and a data track. */
+const discTracks: Track[] = [track, shortTrack(2), shortTrack(3), { ...shortTrack(4), is_audio: false }];
+const toc: Toc = { tracks: discTracks, leadout_sector: 3000 };
+
+const metadataFor = (album: string): DiscMetadata => ({
+  discId: "disc-id",
+  releaseId: "release-id",
+  album,
+  artist: "The Band",
+  year: "1997",
+  tracks: [
+    { number: 1, title: "One", artist: "The Band" },
+    { number: 2, title: "Two", artist: "The Band" },
+    { number: 3, title: "Three", artist: "Guest" },
+  ],
+  coverUrl: null,
+});
+
 /**
- * A player on a fake audio context and a fake drive. Each chunk request waits until `deliverChunk()`,
- * so a test decides when the drive answers.
+ * A player on a fake audio context, a fake drive and a fake MusicBrainz. Each chunk request waits until
+ * `deliverChunk()`, so a test decides when the drive answers. `disc.toc` is the disc in the drive (`null` is
+ * an empty drive) and `lookups.loadMetadata` is what the metadata lookup does.
  */
 const setup = () => {
   const context = new FakeAudioContext();
   const handler = new WebAudioHandler({ createContext: () => context as unknown as AudioContext });
   const waiting: Array<() => void> = [];
   const requestedUrls: string[] = [];
+  const drive = { chunkStatus: 200 };
 
   const fetchChunk = async (url: string) => {
     requestedUrls.push(url);
     await new Promise<void>((resolve) => waiting.push(resolve));
+    if (drive.chunkStatus !== 200) return new Response("the disc has gone", { status: drive.chunkStatus });
     const sectors = Number(/count=(\d+)/.exec(url)?.[1]);
     return new Response(new ArrayBuffer(sectors * SECTOR_BYTES), { headers: { "X-Unreadable-Sectors": "0" } });
   };
@@ -31,17 +56,36 @@ const setup = () => {
     return vi.advanceTimersByTimeAsync(0);
   };
 
-  const player = new CDPlayer({ handler, fetchChunk });
-  return { player, context, requestedUrls, deliverChunk };
+  const disc: { toc: Toc | null } = { toc };
+  const lookups = { loadMetadata: async (_toc: Toc): Promise<DiscMetadata> => metadataFor("First Album") };
+
+  const player = new CDPlayer({
+    handler,
+    fetchChunk,
+    loadToc: async () => {
+      if (!disc.toc) throw "no usable audio CD drive found";
+      return disc.toc;
+    },
+    loadMetadata: (found) => lookups.loadMetadata(found),
+  });
+
+  /** Looks at the drive and lets the metadata lookup finish, so the player is ready to play. */
+  const ready = async () => {
+    await player.checkDisc();
+    await vi.advanceTimersByTimeAsync(0);
+  };
+
+  return { player, context, requestedUrls, deliverChunk, drive, disc, lookups, ready };
 };
 
 describe("CDPlayer", () => {
   let current: ReturnType<typeof setup>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.useFakeTimers();
     vi.stubGlobal("requestAnimationFrame", (callback: () => void) => setTimeout(callback, 16));
     current = setup();
+    await current.ready();
   });
 
   afterEach(() => {
@@ -74,14 +118,14 @@ describe("CDPlayer", () => {
       expect(player.status).toBe("playing");
     });
 
-    it("is idle, not buffering, when the last chunk finishes", async () => {
+    it("is ready again, not buffering, when the last chunk finishes", async () => {
       const { player, context, deliverChunk } = current;
       const shortTrack: Track = { ...track, last_sector: 49 };
       void player.play(shortTrack);
       await deliverChunk();
 
       context.sources[0].finish();
-      expect(player.status).toBe("idle");
+      expect(player.status).toBe("ready");
     });
   });
 
@@ -217,9 +261,6 @@ describe("CDPlayer", () => {
     });
   });
 
-  /** 50 sectors: 0.67 s, fetched in one chunk. */
-  const shortTrack = (number: number): Track => ({ number, first_sector: 0, last_sector: 49, is_audio: true });
-
   /** Plays short track 1 with short track 2 queued, and delivers both, so track 2 is buffered behind track 1. */
   const withNextTrackBuffered = async () => {
     const parts = current;
@@ -249,7 +290,7 @@ describe("CDPlayer", () => {
 
       void current.player.playQueue([{ ...shortTrack(2), is_audio: false }]);
 
-      expect(current.player.status).toBe("idle");
+      expect(current.player.status).toBe("ready");
     });
   });
 
@@ -264,7 +305,7 @@ describe("CDPlayer", () => {
       expect(player.queue.map(({ number }) => number)).toEqual([1]);
       // Nothing follows, so the player ends with the current track.
       context.sources[0].finish();
-      expect(player.status).toBe("idle");
+      expect(player.status).toBe("ready");
     });
 
     it("stops reading a buffered track that is only partly fetched", async () => {
@@ -330,7 +371,7 @@ describe("CDPlayer", () => {
 
       context.sources.at(-1)!.finish();
 
-      expect(player.status).toBe("idle");
+      expect(player.status).toBe("ready");
     });
 
     it("restarts at the next track when it isn't buffered yet", async () => {
@@ -352,7 +393,7 @@ describe("CDPlayer", () => {
 
       await player.next();
 
-      expect(player.status).toBe("idle");
+      expect(player.status).toBe("ready");
     });
   });
 
@@ -411,12 +452,225 @@ describe("CDPlayer", () => {
 
     it("does nothing when nothing is playing", async () => {
       await current.player.seek(5);
-      expect(current.player.status).toBe("idle");
+      expect(current.player.status).toBe("ready");
     });
 
     it("reports the length of the current track", () => {
       void current.player.play(track);
       expect(current.player.durationSeconds).toBe(40);
+    });
+  });
+
+  describe("the disc", () => {
+    /** A lookup the test finishes itself, with the order they were started in. */
+    const heldLookups = (parts: ReturnType<typeof setup>) => {
+      const pending: Array<{ toc: Toc; finish: (metadata: DiscMetadata) => void; fail: (error: Error) => void }> = [];
+      parts.lookups.loadMetadata = (found) =>
+        new Promise<DiscMetadata>((finish, fail) => pending.push({ toc: found, finish, fail }));
+      return pending;
+    };
+
+    it("starts with no disc, and no tracks", () => {
+      const { player } = setup();
+
+      expect(player.status).toBe("noDisc");
+      expect(player.tracks).toEqual([]);
+    });
+
+    it("loads the disc's metadata before it is ready, and can't be played until then", async () => {
+      const parts = setup();
+      const pending = heldLookups(parts);
+
+      await parts.player.checkDisc();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(parts.player.status).toBe("loadingMetadata");
+      expect(parts.player.tracks).toEqual(discTracks);
+
+      void parts.player.playFrom(discTracks[0]);
+      expect(parts.player.status).toBe("loadingMetadata");
+      expect(parts.requestedUrls).toEqual([]);
+
+      pending[0].finish(metadataFor("First Album"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(parts.player.status).toBe("ready");
+      expect(parts.player.metadata?.album).toBe("First Album");
+      expect(parts.player.trackTitle(discTracks[0])).toBe("One");
+      expect(parts.player.trackArtist(discTracks[2])).toBe("Guest");
+    });
+
+    it("is ready with generic names when the lookup finds nothing", async () => {
+      const parts = setup();
+      parts.lookups.loadMetadata = async () => {
+        throw new Error("this disc is not on MusicBrainz");
+      };
+
+      await parts.ready();
+
+      expect(parts.player.status).toBe("ready");
+      expect(parts.player.metadata).toBeNull();
+      expect(parts.player.metadataError).toBe("this disc is not on MusicBrainz");
+      expect(parts.player.trackTitle(discTracks[0])).toBe("Track 1");
+      expect(parts.player.trackTitle(discTracks[3])).toBe("Data track");
+    });
+
+    it("ignores a lookup that finishes after the disc was swapped", async () => {
+      const parts = setup();
+      const pending = heldLookups(parts);
+      await parts.player.checkDisc();
+      await vi.advanceTimersByTimeAsync(0);
+
+      parts.disc.toc = { tracks: [shortTrack(1)], leadout_sector: 50 };
+      await parts.player.checkDisc();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(pending).toHaveLength(2);
+
+      pending[1].finish(metadataFor("Second Album"));
+      await vi.advanceTimersByTimeAsync(0);
+      pending[0].finish(metadataFor("First Album"));
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(parts.player.status).toBe("ready");
+      expect(parts.player.metadata?.album).toBe("Second Album");
+      expect(parts.player.tracks).toHaveLength(1);
+    });
+
+    it("clears the tracks and metadata when the disc is ejected", async () => {
+      const { player, disc } = current;
+      expect(player.tracks).toHaveLength(4);
+
+      disc.toc = null;
+      await player.checkDisc();
+
+      expect(player.status).toBe("noDisc");
+      expect(player.tracks).toEqual([]);
+      expect(player.metadata).toBeNull();
+      expect(player.discError).toBe("no usable audio CD drive found");
+    });
+
+    it("finds a disc put in after an eject", async () => {
+      const { player, disc, ready } = current;
+      disc.toc = null;
+      await player.checkDisc();
+
+      disc.toc = toc;
+      await ready();
+
+      expect(player.status).toBe("ready");
+      expect(player.tracks).toHaveLength(4);
+    });
+
+    it("can't play with no disc", async () => {
+      const parts = setup();
+
+      void parts.player.playQueue([track]);
+      void parts.player.playPause();
+
+      expect(parts.player.status).toBe("noDisc");
+      expect(parts.requestedUrls).toEqual([]);
+    });
+
+    it("leaves the drive alone while audio is active", async () => {
+      const { player, disc, deliverChunk } = current;
+      void player.playFrom(discTracks[0]);
+      await deliverChunk();
+
+      disc.toc = null;
+      await player.checkDisc();
+
+      expect(player.status).toBe("playing");
+      expect(player.tracks).toHaveLength(4);
+    });
+
+    it("stops and looks at the drive when a read fails, which finds the disc gone", async () => {
+      const { player, disc, drive, deliverChunk } = current;
+      drive.chunkStatus = 500;
+      void player.playFrom(discTracks[0]);
+      disc.toc = null;
+
+      await deliverChunk();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(player.status).toBe("noDisc");
+      expect(player.tracks).toEqual([]);
+      expect(player.queue).toEqual([]);
+    });
+
+    it("stays on the disc when a read fails but the disc is still there", async () => {
+      const { player, drive, deliverChunk } = current;
+      drive.chunkStatus = 500;
+      void player.playFrom(discTracks[0]);
+
+      await deliverChunk();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(player.status).toBe("ready");
+      expect(player.error).toContain("500");
+      expect(player.tracks).toHaveLength(4);
+    });
+
+    it("can be stopped from watching the drive", async () => {
+      const parts = setup();
+      parts.player.start();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(parts.player.status).toBe("ready");
+
+      parts.player.destroy();
+      parts.disc.toc = null;
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(parts.player.status).toBe("ready");
+    });
+  });
+
+  describe("the transport", () => {
+    it("play/pause on a ready disc plays from the first track and queues the rest", async () => {
+      const { player, requestedUrls } = current;
+
+      void player.playPause();
+
+      expect(player.status).toBe("loading");
+      expect(player.queue.map(({ number }) => number)).toEqual([1, 2, 3]);
+      expect(requestedUrls[0]).toContain("/track/1?");
+    });
+
+    it("play/pause toggles a pause once audio is active", async () => {
+      const { player, deliverChunk } = current;
+      void player.playPause();
+      await deliverChunk();
+
+      await player.playPause();
+      expect(player.status).toBe("paused");
+      await player.playPause();
+      expect(player.status).toBe("playing");
+    });
+
+    it("playFrom plays that track and every playable one after it, not the data track", () => {
+      const { player } = current;
+
+      void player.playFrom(discTracks[1]);
+
+      expect(player.queue.map(({ number }) => number)).toEqual([2, 3]);
+    });
+
+    it("previous goes back a track near the start of one", async () => {
+      const { player, requestedUrls } = current;
+      void player.playFrom(discTracks[1]);
+
+      void player.previous();
+
+      expect(player.queue.map(({ number }) => number)).toEqual([1, 2, 3]);
+      expect(requestedUrls.at(-1)).toContain("/track/1?");
+    });
+
+    it("previous restarts a track that has been playing a while", async () => {
+      const { player, requestedUrls } = current;
+      void player.playQueue([track], 10);
+      expect(player.positionSeconds).toBe(10);
+
+      void player.previous();
+
+      expect(requestedUrls.at(-1)).toContain("/track/1?start=0");
+      expect(player.queue.map(({ number }) => number)).toEqual([1]);
     });
   });
 
@@ -431,7 +685,7 @@ describe("CDPlayer", () => {
 
       player.stop();
 
-      expect(player.status).toBe("idle");
+      expect(player.status).toBe("ready");
       expect(player.interrupted).toBe(false);
       expect(player.queue).toEqual([]);
       expect(player.trackNumber).toBeNull();

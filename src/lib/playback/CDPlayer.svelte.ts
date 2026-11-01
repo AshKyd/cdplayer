@@ -1,5 +1,8 @@
 import { cdTrackBaseUrl } from "$lib/disc/cdTrackUrl";
-import { SECTORS_PER_SECOND, type Track } from "$lib/disc/types";
+import { DiscWatcher } from "$lib/disc/DiscWatcher.svelte";
+import { SECTORS_PER_SECOND, type Toc, type Track } from "$lib/disc/types";
+import { lookupDiscMetadata } from "$lib/metadata/musicBrainz";
+import type { DiscMetadata } from "$lib/metadata/types";
 import {
   chunkUrl,
   currentSpanIndex,
@@ -8,13 +11,11 @@ import {
   trackSectorCount,
   type TrackSpan,
 } from "./chunks";
+import { previousStep, tracksFrom } from "./navigation";
+import { isPlaybackActive, transition, type PlayerEvent, type PlayerStatus } from "./playerMachine";
 import { WebAudioHandler } from "./WebAudioHandler";
 
-/**
- * `loading`: waiting for the first chunk. `buffering`: playing, but the audio ran out before the next
- * chunk arrived. `paused`: by the user, or by the system interrupting the audio (see `interrupted`).
- */
-export type PlayerStatus = "idle" | "loading" | "playing" | "buffering" | "paused";
+export type { PlayerStatus } from "./playerMachine";
 
 interface Options {
   /** Does the audio scheduling. Tests pass one built on a fake `AudioContext`. */
@@ -23,6 +24,12 @@ interface Options {
   fetchChunk?: (url: string) => Promise<Response>;
   /** Root of the `cd-track` protocol, which differs by platform. Defaults to what Tauri reports. */
   baseUrl?: string;
+  /** Reads the disc's table of contents; defaults to the `get_toc` command. Tests pass a fake. */
+  loadToc?: () => Promise<Toc>;
+  /** Looks up a disc's track names and cover; defaults to MusicBrainz. Tests pass a fake. */
+  loadMetadata?: (toc: Toc) => Promise<DiscMetadata>;
+  /** Time between checks for a new or removed disc, while nothing is playing. */
+  discCheckIntervalMs?: number;
 }
 
 /** Bytes per CD sector of raw PCM. */
@@ -39,9 +46,15 @@ const UNREADABLE_SECTORS_HEADER = "X-Unreadable-Sectors";
 const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 /**
- * Plays a queue of CD tracks: reads sector chunks through the `cd-track` protocol and hands the PCM to a
- * `WebAudioHandler`. Holds playback state for the UI. Audio scheduling lives in the handler so other
- * sources (e.g. MP3 CDs) can reuse it.
+ * The CD player: finds the disc, looks up its track names, and plays a queue of its tracks.
+ *
+ * Its life is one state machine (`status`, with the rules in `playerMachine.ts`): no disc, loading the
+ * disc's metadata, ready, then loading, playing, buffering or paused. Every step goes through
+ * `#dispatch()`, so it only happens when the state allows it. The tracks are not shown or playable until
+ * the metadata lookup has finished, whether it found the disc or not.
+ *
+ * Playback reads sector chunks through the `cd-track` protocol and hands the PCM to a `WebAudioHandler`.
+ * Audio scheduling lives in the handler so other sources (e.g. MP3 CDs) can reuse it.
  *
  * Gapless: the handler joins segments by frame count and doesn't care which track they came from, so the
  * next track is simply fetched into the same stream while the lead is still ~30 s ahead. The handler's
@@ -49,7 +62,13 @@ const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(reso
  * "which track, how far in".
  */
 export class CDPlayer {
-  status = $state<PlayerStatus>("idle");
+  status = $state<PlayerStatus>("noDisc");
+  /** The tracks of the disc in the drive, in disc order. Empty with no disc. */
+  tracks = $state<Track[]>([]);
+  /** What MusicBrainz knows about the disc, or `null` while looking, with no disc, or if it wasn't found. */
+  metadata = $state<DiscMetadata | null>(null);
+  /** Why the lookup found nothing (not on MusicBrainz, offline, ...). Empty otherwise. */
+  metadataError = $state("");
   trackNumber = $state<number | null>(null);
   /** Seconds into the current track. */
   positionSeconds = $state(0);
@@ -66,16 +85,30 @@ export class CDPlayer {
   /** True while the system has stopped the audio without being asked; press Play to continue. */
   interrupted = $state(false);
 
+  /** Why there is no disc (no drive, empty drive), as last reported by the drive. */
+  get discError(): string {
+    return this.#watcher.error;
+  }
+
+  /** True while the drive is being asked what disc it holds. */
+  get checkingDisc(): boolean {
+    return this.#watcher.checking;
+  }
+
   #handler: WebAudioHandler;
+  #watcher: DiscWatcher;
   #fetchChunk: (url: string) => Promise<Response>;
+  #loadMetadata: (toc: Toc) => Promise<DiscMetadata>;
   #baseUrl: string;
+  /** Bumped for every disc found or removed, so a lookup for an earlier disc is ignored when it finishes. */
+  #discToken = 0;
   /** Bumped when buffered tracks are dropped, so a fetch loop that was reading one of them stops. */
   #fetchGeneration = 0;
   /** True once the first chunk of this run has been scheduled. */
   #startedPlaying = false;
   /** True when `status` became `paused` because of an interruption, not because the user paused. */
   #pausedByInterruption = false;
-  /** Bumped by every `play()`/`stop()`; an older run sees the change and abandons its work. */
+  /** Bumped by every `playQueue()` and `stop()`; an older run sees the change and abandons its work. */
   #runId = 0;
   /** Timeline position of each fetched track. `#spans[i]` belongs to `queue[i]`. */
   #spans: TrackSpan[] = [];
@@ -90,22 +123,62 @@ export class CDPlayer {
     handler = new WebAudioHandler(),
     fetchChunk = (url) => fetch(url),
     baseUrl = cdTrackBaseUrl(),
+    loadToc,
+    loadMetadata = (toc) => lookupDiscMetadata(toc),
+    discCheckIntervalMs,
   }: Options = {}) {
     this.#handler = handler;
     this.#fetchChunk = fetchChunk;
     this.#baseUrl = baseUrl;
+    this.#loadMetadata = loadMetadata;
+
+    // The drive is left alone while audio is active: re-opening it would cut off reads.
+    this.#watcher = new DiscWatcher({
+      loadToc,
+      intervalMs: discCheckIntervalMs,
+      isBusy: () => isPlaybackActive(this.status),
+      onChange: (toc) => this.#handleDiscChange(toc),
+    });
 
     // Segments can run dry mid-queue on a slow read: that is buffering, and only the end once everything is fetched.
     this.#handler.onEnded = () => {
       if (!this.#fetching) return this.stop();
-      if (this.status === "playing") this.status = "buffering";
+      this.#dispatch({ type: "underrun" });
     };
     this.#handler.onInterruption = (interrupted) => this.#handleInterruption(interrupted);
   }
 
-  /** Stops whatever is playing, then plays `track` from `timeSeconds`. */
+  /** Starts watching the drive for a disc. */
+  start(): void {
+    this.#watcher.start();
+  }
+
+  /** Stops watching the drive and stops any audio. */
+  destroy(): void {
+    this.#watcher.stop();
+    this.#teardownPlayback();
+  }
+
+  /** Looks at the drive now. Does nothing while audio is active. */
+  checkDisc(): Promise<void> {
+    return this.#watcher.checkNow();
+  }
+
+  /** The track's name from MusicBrainz, or "Track N" if the disc wasn't found. */
+  trackTitle({ number, is_audio }: Track): string {
+    if (!is_audio) return "Data track";
+    return this.metadata?.tracks.find((track) => track.number === number)?.title || `Track ${number}`;
+  }
+
+  /** The track's own artist from MusicBrainz when it differs from the album's (a compilation), otherwise empty. */
+  trackArtist({ number }: Track): string {
+    const artist = this.metadata?.tracks.find((track) => track.number === number)?.artist ?? "";
+    return artist === this.metadata?.artist ? "" : artist;
+  }
+
+  /** Stops whatever is playing, then plays `track` alone from `timeSeconds`. */
   play(track: Track, timeSeconds = 0): Promise<void> {
-    return this.#start([track], timeSeconds);
+    return this.playQueue([track], timeSeconds);
   }
 
   /** Stops whatever is playing, then plays `tracks` in order, starting the first at `timeSeconds`. Data tracks are skipped. */
@@ -116,13 +189,36 @@ export class CDPlayer {
     );
   }
 
+  /** Plays `track` and every playable track after it on the disc, replacing the queue. */
+  playFrom(track: Track): Promise<void> {
+    return this.playQueue(tracksFrom(this.tracks, track));
+  }
+
+  /** The play/pause button: pauses or resumes if audio is active, otherwise plays the disc from the first track. */
+  playPause(): Promise<void> {
+    if (isPlaybackActive(this.status)) return this.togglePause();
+    const first = this.tracks.find(({ is_audio }) => is_audio);
+    return first ? this.playFrom(first) : Promise.resolve();
+  }
+
+  /** The previous button: restarts the track if it has been playing a while, otherwise plays the track before it. */
+  previous(): Promise<void> {
+    const step = previousStep({
+      tracks: this.tracks,
+      currentTrackNumber: this.trackNumber,
+      positionSeconds: this.positionSeconds,
+    });
+    return step.kind === "play" ? this.playFrom(step.track) : this.seek(0);
+  }
+
   /** Adds an audio track to the end of the queue, or starts it if nothing is playing. */
   enqueue(track: Track): void {
     if (!track.is_audio) return;
-    if (this.status === "idle") {
+    if (this.status === "ready") {
       void this.play(track);
       return;
     }
+    if (!isPlaybackActive(this.status)) return;
     this.queue.push(track);
     if (!this.#fetching) void this.#pump(this.#runId);
   }
@@ -191,26 +287,14 @@ export class CDPlayer {
     return restarted;
   }
 
+  /** Stops playback and clears the queue. The disc stays, ready to play. */
   stop(): void {
-    this.#runId++;
-    this.#handler.stop();
-    this.#spans = [];
-    this.#fetchIndex = 0;
-    this.#fetching = false;
-    this.#scheduledSeconds = 0;
-    this.queue = [];
-    this.status = "idle";
-    this.trackNumber = null;
-    this.positionSeconds = 0;
-    this.interrupted = false;
-    this.#startedPlaying = false;
-    this.#pausedByInterruption = false;
+    if (this.#dispatch({ type: "stop" })) this.#teardownPlayback();
   }
 
   /** Pauses from any active state, including `loading`: the first chunk then waits, silent, until `resume()`. */
   async pause(): Promise<void> {
-    if (this.status !== "loading" && this.status !== "buffering" && this.status !== "playing") return;
-    this.status = "paused";
+    if (!this.#dispatch({ type: "pause" })) return;
     await this.#handler.suspend();
   }
 
@@ -220,22 +304,78 @@ export class CDPlayer {
     this.#pausedByInterruption = false;
     this.interrupted = false;
     await this.#handler.resume();
-    if (this.status === "paused") this.status = this.#statusAfterPause();
+    this.#dispatch({ type: "resume", to: this.#statusAfterPause() });
   }
 
   togglePause(): Promise<void> {
     return this.status === "paused" ? this.resume() : this.pause();
   }
 
+  /** Moves to the next state if the event is allowed in the current one. Returns whether it happened. */
+  #dispatch(event: PlayerEvent): boolean {
+    const next = transition(this.status, event);
+    if (next === null) return false;
+    this.status = next;
+    return true;
+  }
+
+  /** A disc was found, replaced or removed. Whatever was playing or looked up belongs to the old disc. */
+  #handleDiscChange(toc: Toc | null): void {
+    this.#teardownPlayback();
+    const token = ++this.#discToken;
+    this.metadata = null;
+    this.metadataError = "";
+    this.error = "";
+    this.unreadableSectors = 0;
+
+    if (!toc) {
+      this.tracks = [];
+      this.#dispatch({ type: "discRemoved" });
+      return;
+    }
+    this.tracks = toc.tracks;
+    this.#dispatch({ type: "discInserted" });
+    void this.#lookUpMetadata(toc, token);
+  }
+
+  /** Finds the disc's track names. Not finding them is not an error: the disc plays with "Track N". */
+  async #lookUpMetadata(toc: Toc, token: number): Promise<void> {
+    const result = await this.#loadMetadata(toc).then(
+      (metadata) => ({ metadata, error: "" }),
+      (reason) => ({ metadata: null, error: reason instanceof Error ? reason.message : String(reason) }),
+    );
+    if (token !== this.#discToken) return;
+
+    this.metadata = result.metadata;
+    this.metadataError = result.error;
+    this.#dispatch({ type: "metadataSettled" });
+  }
+
+  /** Stops the audio and forgets the queue, without changing `status` (the caller does that). */
+  #teardownPlayback(): void {
+    this.#runId++;
+    this.#handler.stop();
+    this.#spans = [];
+    this.#fetchIndex = 0;
+    this.#fetching = false;
+    this.#scheduledSeconds = 0;
+    this.queue = [];
+    this.trackNumber = null;
+    this.positionSeconds = 0;
+    this.interrupted = false;
+    this.#startedPlaying = false;
+    this.#pausedByInterruption = false;
+  }
+
   /** What the player was doing before a pause, worked out from the audio rather than remembered. */
-  #statusAfterPause(): PlayerStatus {
+  #statusAfterPause(): "loading" | "playing" | "buffering" {
     if (this.#handler.hasQueuedAudio) return "playing";
     return this.#startedPlaying ? "buffering" : "loading";
   }
 
   #markPlaying(): void {
     this.#startedPlaying = true;
-    if (this.status === "loading" || this.status === "buffering") this.status = "playing";
+    this.#dispatch({ type: "chunkArrived" });
   }
 
   /** Pauses (and later resumes) when the system stops and restarts the audio, without touching a user's own pause. */
@@ -245,18 +385,25 @@ export class CDPlayer {
     if (interrupted) {
       if (this.status !== "playing" && this.status !== "buffering") return;
       this.#pausedByInterruption = true;
-      this.status = "paused";
+      this.#dispatch({ type: "pause" });
       return;
     }
-    if (this.#pausedByInterruption && this.status === "paused") this.status = this.#statusAfterPause();
+    if (this.#pausedByInterruption && this.status === "paused") {
+      this.#dispatch({ type: "resume", to: this.#statusAfterPause() });
+    }
     this.#pausedByInterruption = false;
   }
 
   #start(tracks: Track[], timeSeconds: number): Promise<void> {
-    this.stop();
     const [first] = tracks;
-    if (!first) return Promise.resolve();
+    if (!first) {
+      this.stop();
+      return Promise.resolve();
+    }
+    // Not allowed until a disc is there and its metadata has settled.
+    if (transition(this.status, { type: "play" }) === null) return Promise.resolve();
 
+    this.#teardownPlayback();
     const runId = this.#runId;
     const startSector = startSectorForTime(first, timeSeconds);
     this.error = "";
@@ -264,7 +411,7 @@ export class CDPlayer {
     this.queue = tracks;
     this.trackNumber = first.number;
     this.positionSeconds = startSector / SECTORS_PER_SECOND;
-    this.status = "loading";
+    this.#dispatch({ type: "play" });
     this.#trackPosition(runId);
     return this.#pump(runId, startSector);
   }
@@ -279,6 +426,8 @@ export class CDPlayer {
       if (isCancelled()) return;
       this.error = String(reason);
       this.stop();
+      // A failed read usually means the disc was ejected: look at the drive straight away.
+      void this.checkDisc();
     });
   }
 

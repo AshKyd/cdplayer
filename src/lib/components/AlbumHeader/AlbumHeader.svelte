@@ -1,0 +1,74 @@
+<script lang="ts">
+  import { Icon } from "svelte-akui";
+  import type { DiscMetadata } from "$lib/metadata/types";
+
+  interface Props {
+    /** The disc's album, artist and cover. */
+    metadata: DiscMetadata;
+  }
+
+  let { metadata }: Props = $props();
+
+  /** A cover that fails to load (offline, removed) falls back to the disc icon. */
+  let coverFailed = $state(false);
+
+  const details = $derived([metadata.artist, metadata.year].filter(Boolean).join(" · "));
+</script>
+
+<div class="album">
+  <div class="cover">
+    {#if metadata.coverUrl && !coverFailed}
+      <img src={metadata.coverUrl} alt="Cover of {metadata.album}" onerror={() => (coverFailed = true)} />
+    {:else}
+      <Icon name="disc" size="2rem" />
+    {/if}
+  </div>
+  <div class="text">
+    <h1>{metadata.album}</h1>
+    {#if details}<p>{details}</p>{/if}
+  </div>
+</div>
+
+<style>
+  .album {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+  }
+
+  .cover {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 4.5rem;
+    height: 4.5rem;
+    overflow: hidden;
+    border-radius: 0.375rem;
+    background: var(--akui-bg-secondary);
+    color: var(--akui-fg-secondary);
+  }
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .text {
+    min-width: 0;
+  }
+
+  h1 {
+    overflow: hidden;
+    font-size: 1.25rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  p {
+    overflow: hidden;
+    color: var(--akui-fg-secondary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+</style>

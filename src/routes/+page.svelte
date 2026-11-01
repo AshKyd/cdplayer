@@ -1,75 +1,52 @@
 <script lang="ts">
-  import { InfoBox } from "svelte-akui";
-  import { onMount, untrack } from "svelte";
+  import { InfoBox, Loader } from "svelte-akui";
+  import { onMount } from "svelte";
+  import AlbumHeader from "$lib/components/AlbumHeader/AlbumHeader.svelte";
   import SeekBar from "$lib/components/SeekBar/SeekBar.svelte";
   import TrackTable from "$lib/components/TrackTable/TrackTable.svelte";
+  import { toTrackRows } from "$lib/components/TrackTable/trackRows";
   import TransportControls from "$lib/components/TransportControls/TransportControls.svelte";
-  import { DiscWatcher } from "$lib/disc/DiscWatcher.svelte";
-  import type { Track } from "$lib/disc/types";
   import { CDPlayer } from "$lib/playback/CDPlayer.svelte";
-  import { previousStep, tracksFrom } from "$lib/playback/navigation";
+  import { isDiscReady, isPlaybackActive } from "$lib/playback/playerMachine";
 
   const player = new CDPlayer();
-  /** Polls the drive for a new, swapped or ejected disc. Idle only: re-opening the drive would cut off playback. */
-  const watcher = new DiscWatcher({
-    isBusy: () => player.status !== "idle",
-    // Whatever was playing or queued belongs to the old disc.
-    onChange: () => player.stop(),
-  });
-
-  /** Empty when there is no disc, which clears the table. */
-  const tracks = $derived(watcher.toc?.tracks ?? []);
-  const firstPlayable = $derived(tracks.find(({ is_audio }) => is_audio));
-  /** Audio is active, as opposed to stopped or paused. */
-  const isActive = $derived(["loading", "playing", "buffering"].includes(player.status));
-  const emptyMessage = $derived(
-    watcher.error ? `No disc: ${watcher.error}` : watcher.checking ? "Reading disc…" : "No disc in the drive",
-  );
 
   onMount(() => {
-    watcher.start();
-    return () => watcher.stop();
+    player.start();
+    return () => player.destroy();
   });
 
-  // A failed read while playing usually means the disc was ejected: look at the drive straight away.
-  $effect(() => {
-    if (player.error) untrack(() => watcher.checkNow());
-  });
-
-  /** Plays `track` and everything after it on the disc, replacing whatever was queued. */
-  const playFrom = (track: Track) => void player.playQueue(tracksFrom(tracks, track));
-
-  const handlePlayPause = () => {
-    if (player.status !== "idle") return void player.togglePause();
-    if (firstPlayable) playFrom(firstPlayable);
-  };
-
-  const handlePrevious = () => {
-    const step = previousStep({
-      tracks,
-      currentTrackNumber: player.trackNumber,
-      positionSeconds: player.positionSeconds,
-    });
-    if (step.kind === "play") playFrom(step.track);
-    else void player.seek(0);
-  };
+  const hasPlayableTrack = $derived(player.tracks.some(({ is_audio }) => is_audio));
+  const isActive = $derived(isPlaybackActive(player.status));
+  /** Audio is moving (or about to), as opposed to stopped or paused. */
+  const isSounding = $derived(["loading", "playing", "buffering"].includes(player.status));
+  const rows = $derived(
+    toTrackRows(
+      player.tracks,
+      (track) => player.trackTitle(track),
+      (track) => player.trackArtist(track),
+    ),
+  );
+  const noDiscMessage = $derived(
+    player.discError ? `No disc: ${player.discError}` : player.checkingDisc ? "Reading disc…" : "No disc in the drive",
+  );
 </script>
 
 <main>
   <header>
     <TransportControls
-      playing={isActive}
-      disabled={!firstPlayable}
-      canPrevious={player.status !== "idle"}
+      playing={isSounding}
+      disabled={!hasPlayableTrack || !isDiscReady(player.status)}
+      canPrevious={isActive}
       canNext={player.queue.length > 1}
-      onprevious={handlePrevious}
-      onplaypause={handlePlayPause}
+      onprevious={() => void player.previous()}
+      onplaypause={() => void player.playPause()}
       onnext={() => void player.next()}
     />
     <SeekBar
       positionSeconds={player.positionSeconds}
       durationSeconds={player.durationSeconds}
-      disabled={player.status === "idle"}
+      disabled={!isActive}
       onseek={(seconds) => void player.seek(seconds)}
     />
   </header>
@@ -87,15 +64,25 @@
     <InfoBox variant="error" title="Playback stopped">{player.error}</InfoBox>
   {/if}
 
-  <section>
-    <TrackTable
-      {tracks}
-      currentTrackNumber={player.trackNumber}
-      playing={isActive}
-      onplay={playFrom}
-      {emptyMessage}
-    />
-  </section>
+  {#if player.status === "noDisc"}
+    <p class="message">{noDiscMessage}</p>
+  {:else if player.status === "loadingMetadata"}
+    <p class="message"><Loader /> Looking up the disc…</p>
+  {:else}
+    {#if player.metadata}
+      <AlbumHeader metadata={player.metadata} />
+    {:else if player.metadataError}
+      <p class="hint">Track names unavailable: {player.metadataError}.</p>
+    {/if}
+    <section>
+      <TrackTable
+        {rows}
+        currentTrackNumber={player.trackNumber}
+        playing={isSounding}
+        onplay={(track) => void player.playFrom(track)}
+      />
+    </section>
+  {/if}
 </main>
 
 <style>
@@ -117,5 +104,18 @@
   section {
     flex: 1;
     min-height: 0;
+  }
+
+  .message {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 1rem;
+    color: var(--akui-fg-secondary);
+  }
+
+  .hint {
+    color: var(--akui-fg-secondary);
   }
 </style>
