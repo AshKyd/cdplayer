@@ -1,10 +1,13 @@
 <script lang="ts">
+  import { InfoBox } from "svelte-akui";
   import { onMount, untrack } from "svelte";
-  import { cdTrackBaseUrl } from "$lib/disc/cdTrackUrl";
+  import SeekBar from "$lib/components/SeekBar/SeekBar.svelte";
+  import TrackTable from "$lib/components/TrackTable/TrackTable.svelte";
+  import TransportControls from "$lib/components/TransportControls/TransportControls.svelte";
   import { DiscWatcher } from "$lib/disc/DiscWatcher.svelte";
-  import { SECTORS_PER_SECOND, type Track } from "$lib/disc/types";
-  import { chunkUrl } from "$lib/playback/chunks";
+  import type { Track } from "$lib/disc/types";
   import { CDPlayer } from "$lib/playback/CDPlayer.svelte";
+  import { previousStep, tracksFrom } from "$lib/playback/navigation";
 
   const player = new CDPlayer();
   /** Polls the drive for a new, swapped or ejected disc. Idle only: re-opening the drive would cut off playback. */
@@ -13,13 +16,15 @@
     // Whatever was playing or queued belongs to the old disc.
     onChange: () => player.stop(),
   });
-  /** Where `play()` starts, in seconds into the track. */
-  let startAtSeconds = $state(0);
-  /** Set while the seek bar is being dragged, so the moving position doesn't fight the thumb. */
-  let scrubSeconds = $state<number | null>(null);
 
-  /** Result of the last test chunk read, keyed by track number. */
-  let chunkResults = $state<Record<number, string>>({});
+  /** Empty when there is no disc, which clears the table. */
+  const tracks = $derived(watcher.toc?.tracks ?? []);
+  const firstPlayable = $derived(tracks.find(({ is_audio }) => is_audio));
+  /** Audio is active, as opposed to stopped or paused. */
+  const isActive = $derived(["loading", "playing", "buffering"].includes(player.status));
+  const emptyMessage = $derived(
+    watcher.error ? `No disc: ${watcher.error}` : watcher.checking ? "Reading disc…" : "No disc in the drive",
+  );
 
   onMount(() => {
     watcher.start();
@@ -31,141 +36,86 @@
     if (player.error) untrack(() => watcher.checkNow());
   });
 
-  const formatClock = (totalSeconds: number) =>
-    `${Math.floor(totalSeconds / 60)}:${String(Math.floor(totalSeconds % 60)).padStart(2, "0")}`;
+  /** Plays `track` and everything after it on the disc, replacing whatever was queued. */
+  const playFrom = (track: Track) => void player.playQueue(tracksFrom(tracks, track));
 
-  const formatDuration = ({ first_sector, last_sector }: Track) =>
-    formatClock(Math.round((last_sector - first_sector + 1) / SECTORS_PER_SECOND));
+  const handlePlayPause = () => {
+    if (player.status !== "idle") return void player.togglePause();
+    if (firstPlayable) playFrom(firstPlayable);
+  };
 
-  /** Fetches the first 5 s of a track through the cd-track protocol and reports size and read time. */
-  const testChunk = async ({ number }: Track) => {
-    chunkResults[number] = "reading…";
-    const startedAt = performance.now();
-    const response = await fetch(chunkUrl(cdTrackBaseUrl(), number, 0, 375)).catch(
-      (error) => String(error),
-    );
-    if (typeof response === "string") {
-      chunkResults[number] = `fetch failed: ${response}`;
-      return;
-    }
-    const body = await response.arrayBuffer();
-    const elapsedMs = Math.round(performance.now() - startedAt);
-    chunkResults[number] = response.ok
-      ? `${body.byteLength} bytes in ${elapsedMs} ms`
-      : `${response.status}: ${new TextDecoder().decode(body)}`;
+  const handlePrevious = () => {
+    const step = previousStep({
+      tracks,
+      currentTrackNumber: player.trackNumber,
+      positionSeconds: player.positionSeconds,
+    });
+    if (step.kind === "play") playFrom(step.track);
+    else void player.seek(0);
   };
 </script>
 
 <main>
-  <h1>cdplayer</h1>
-  <button onclick={() => watcher.checkNow()} disabled={watcher.checking || player.status !== "idle"}>
-    Check for disc
-  </button>
-
-  <section class="transport">
-    <button onclick={() => player.togglePause()} disabled={player.status === "idle"}>
-      {player.status === "paused" ? "Play" : "Pause"}
-    </button>
-    <button onclick={() => player.stop()} disabled={player.status === "idle"}>Stop</button>
-    <label>
-      Start at (s)
-      <input type="number" min="0" step="1" bind:value={startAtSeconds} />
-    </label>
-    <span>
-      {#if player.status === "idle"}
-        Stopped
-      {:else}
-        Track {player.trackNumber} · {player.status} · {formatClock(player.positionSeconds)}
-      {/if}
-    </span>
-  </section>
-  <section class="transport">
-    <input
-      class="seek"
-      type="range"
-      min="0"
-      max={player.durationSeconds}
-      step="1"
-      value={scrubSeconds ?? player.positionSeconds}
-      disabled={player.status === "idle"}
-      aria-label="Seek"
-      oninput={(event) => (scrubSeconds = Number(event.currentTarget.value))}
-      onchange={(event) => {
-        scrubSeconds = null;
-        player.seek(Number(event.currentTarget.value));
-      }}
+  <header>
+    <TransportControls
+      playing={isActive}
+      disabled={!firstPlayable}
+      canPrevious={player.status !== "idle"}
+      canNext={player.queue.length > 1}
+      onprevious={handlePrevious}
+      onplaypause={handlePlayPause}
+      onnext={() => void player.next()}
     />
-    <span>{formatClock(scrubSeconds ?? player.positionSeconds)} / {formatClock(player.durationSeconds)}</span>
-  </section>
-  <section class="transport">
-    <span>Up next: {player.queue.slice(1).map(({ number }) => number).join(", ") || "none"}</span>
-    <button onclick={() => player.next()} disabled={player.queue.length < 2}>Next</button>
-    <button onclick={() => player.clearQueue()} disabled={player.queue.length < 2}>Clear queue</button>
-  </section>
+    <SeekBar
+      positionSeconds={player.positionSeconds}
+      durationSeconds={player.durationSeconds}
+      disabled={player.status === "idle"}
+      onseek={(seconds) => void player.seek(seconds)}
+    />
+  </header>
+
   {#if player.interrupted}
-    <p class="warning">Audio output was interrupted. Press Play to continue.</p>
+    <InfoBox variant="warning" title="Audio output was interrupted">Press Play to continue.</InfoBox>
   {/if}
   {#if player.unreadableSectors > 0}
-    <p class="warning">
-      {player.unreadableSectors} unreadable sector{player.unreadableSectors === 1 ? "" : "s"} played as silence
-      (the disc may be scratched or dirty)
-    </p>
+    <InfoBox variant="warning" title="Unreadable sectors">
+      {player.unreadableSectors} sector{player.unreadableSectors === 1 ? "" : "s"} played as silence. The disc may
+      be scratched or dirty.
+    </InfoBox>
   {/if}
   {#if player.error}
-    <p class="error">{player.error}</p>
+    <InfoBox variant="error" title="Playback stopped">{player.error}</InfoBox>
   {/if}
 
-  {#if watcher.error}
-    <p class="error">{watcher.error}</p>
-  {:else if watcher.toc}
-    <ol>
-      {#each watcher.toc.tracks as track (track.number)}
-        <li>
-          <span>Track {track.number} · {formatDuration(track)}{track.is_audio ? "" : " (data)"}</span>
-          {#if track.is_audio}
-            <button onclick={() => player.play(track, startAtSeconds || 0)}>Play</button>
-            <button onclick={() => player.enqueue(track)}>Queue</button>
-            <button onclick={() => testChunk(track)}>Test read</button>
-          {/if}
-          <small>{chunkResults[track.number] ?? ""}</small>
-        </li>
-      {/each}
-    </ol>
-  {:else}
-    <p>Reading disc…</p>
-  {/if}
+  <section>
+    <TrackTable
+      {tracks}
+      currentTrackNumber={player.trackNumber}
+      playing={isActive}
+      onplay={playFrom}
+      {emptyMessage}
+    />
+  </section>
 </main>
 
 <style>
   main {
-    font-family: system-ui, sans-serif;
-    padding: 1.5rem;
-  }
-
-  .transport {
     display: flex;
+    flex-direction: column;
     gap: 0.75rem;
-    align-items: center;
-    margin-block: 1rem;
+    height: 100vh;
+    padding: 0.75rem 1rem 1rem;
   }
 
-  li {
+  header {
     display: flex;
-    gap: 0.75rem;
+    gap: 1.25rem;
     align-items: center;
-    margin-block: 0.25rem;
+    padding-block: 1rem;
   }
 
-  .seek {
+  section {
     flex: 1;
-    max-width: 24rem;
-  }
-
-  .warning {
-    color: #b9770e;
-  }
-
-  .error {
-    color: #c0392b;
+    min-height: 0;
   }
 </style>

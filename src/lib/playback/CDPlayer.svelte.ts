@@ -108,6 +108,14 @@ export class CDPlayer {
     return this.#start([track], timeSeconds);
   }
 
+  /** Stops whatever is playing, then plays `tracks` in order, starting the first at `timeSeconds`. Data tracks are skipped. */
+  playQueue(tracks: Track[], timeSeconds = 0): Promise<void> {
+    return this.#start(
+      tracks.filter(({ is_audio }) => is_audio),
+      timeSeconds,
+    );
+  }
+
   /** Adds an audio track to the end of the queue, or starts it if nothing is playing. */
   enqueue(track: Track): void {
     if (!track.is_audio) return;

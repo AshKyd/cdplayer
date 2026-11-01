@@ -22,6 +22,7 @@ Plays a queue of CD tracks gaplessly and holds the playback state for the UI. It
 - `interrupted`: true while the system has stopped the audio without being asked (sleep, an output device change). The UI shows "press Play".
 - `queue`: the playing track first, then the tracks after it.
 - `play(track, timeSeconds = 0)`: stops the current queue, then plays `track` from `timeSeconds`.
+- `playQueue(tracks, timeSeconds = 0)`: stops the current queue, then plays `tracks` in order, starting the first at `timeSeconds`. Data tracks are skipped. This is what a double-click on a track does, with the track and all after it.
 - `enqueue(track)`: adds an audio track to the end of the queue. Starts it if idle. Data tracks are ignored.
 - `clearQueue()`: removes every track after the current one, including tracks already buffered (see Behaviour).
 - `next()`: skips to the next queued track. Instant if that track's start is already buffered.
@@ -46,7 +47,7 @@ Plays a queue of CD tracks gaplessly and holds the playback state for the UI. It
   - `next()` calls `WebAudioHandler.skipTo()` at the next track's start. The buffered audio is scheduled again to play now, from the same buffers, so the switch is instant with no fetch. If the next track isn't buffered yet (the loop only reaches it when the current track is within about 30 s of its end), it flushes and restarts, and waits for the first chunk.
   - `seek()` calls `skipTo()` when the target is inside audio that is still buffered. Otherwise (further ahead than is buffered, or back in audio that has played out) it restarts the current track from the target, keeping the rest of the queue.
 - Chunk URLs are built on `cdTrackBaseUrl()`: `cd-track://localhost/` on macOS and Linux, `http://cd-track.localhost/` on Windows and Android. It asks Tauri's `convertFileSrc` for the platform prefix, and falls back to the first form outside Tauri.
-- The demo UI is in `src/routes/+page.svelte`: Play and Queue buttons per track, Play/Pause, Stop, Next, Clear queue, a seek bar with the position and track length, a start-time input and an "Up next" list.
+- The UI is described in [ui.md](ui.md). It uses `playQueue()`, `togglePause()`, `next()`, `seek()` and the state above. `enqueue()` and `clearQueue()` are not used by it yet.
 
 ## Known issues
 

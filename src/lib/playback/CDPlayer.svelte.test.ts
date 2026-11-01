@@ -230,6 +230,29 @@ describe("CDPlayer", () => {
     return parts;
   };
 
+  describe("playQueue", () => {
+    it("replaces the queue and plays the tracks in order, skipping data tracks", async () => {
+      const { player, requestedUrls, deliverChunk } = current;
+      void player.play(shortTrack(9));
+      await deliverChunk();
+
+      const dataTrack: Track = { ...shortTrack(3), is_audio: false };
+      void player.playQueue([shortTrack(2), dataTrack, shortTrack(4)]);
+
+      expect(player.queue.map(({ number }) => number)).toEqual([2, 4]);
+      expect(player.status).toBe("loading");
+      expect(requestedUrls.at(-1)).toContain("/track/2?start=0");
+    });
+
+    it("stops when there is nothing playable", () => {
+      void current.player.play(shortTrack(1));
+
+      void current.player.playQueue([{ ...shortTrack(2), is_audio: false }]);
+
+      expect(current.player.status).toBe("idle");
+    });
+  });
+
   describe("clearQueue", () => {
     it("takes a buffered next track back out of the audio", async () => {
       const { player, context } = await withNextTrackBuffered();

@@ -16,7 +16,9 @@
   "license": "ISC",
   "dependencies": {
     "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-opener": "^2"
+    "@tauri-apps/plugin-opener": "^2",
+    "bootstrap-icons": "^1.13.2",
+    "svelte-akui": "github:ashkyd/svelte-akui"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.10",
