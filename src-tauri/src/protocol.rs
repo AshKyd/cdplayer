@@ -1,0 +1,144 @@
+//! `cd-track://localhost/track/{n}?start={sector}&count={sectors}` serves raw PCM chunks.
+//! `start` is relative to the track's first sector. The response is headerless 16-bit/44.1kHz stereo.
+
+use crate::disc::{MAX_CHUNK_SECTORS, Toc, reader::DiscHandle};
+use tauri::http::{Response, StatusCode};
+
+#[derive(Debug, PartialEq)]
+struct ChunkRequest {
+    track_number: u8,
+    start_sector: u32,
+    sector_count: u32,
+}
+
+/// Parses `/track/{n}` plus `start`/`count` query parameters (`start` defaults to 0, `count` to a full chunk).
+fn parse_chunk_request(path: &str, query: Option<&str>) -> Option<ChunkRequest> {
+    let track_number = path.strip_prefix("/track/")?.parse::<u8>().ok()?;
+
+    let parameter = |name: &str, default: u32| -> Option<u32> {
+        let found = query
+            .unwrap_or("")
+            .split('&')
+            .filter_map(|pair| pair.split_once('='))
+            .find(|(key, _)| *key == name);
+        match found {
+            Some((_, value)) => value.parse().ok(),
+            None => Some(default),
+        }
+    };
+
+    Some(ChunkRequest {
+        track_number,
+        start_sector: parameter("start", 0)?,
+        sector_count: parameter("count", MAX_CHUNK_SECTORS)?,
+    })
+}
+
+/// Maps a track-relative request to an absolute `(start_sector, sector_count)`, capping the chunk size
+/// and clamping to the track end. Returns `None` for unknown/non-audio tracks or a start past the end.
+fn resolve_range(toc: &Toc, request: &ChunkRequest) -> Option<(i32, u32)> {
+    let track = toc
+        .tracks
+        .iter()
+        .find(|track| track.number == request.track_number && track.is_audio)?;
+
+    let track_sectors = u32::try_from(track.last_sector - track.first_sector + 1).ok()?;
+    let remaining = track_sectors.checked_sub(request.start_sector).filter(|remaining| *remaining > 0)?;
+    let sector_count = request.sector_count.min(MAX_CHUNK_SECTORS).min(remaining);
+
+    Some((track.first_sector + request.start_sector as i32, sector_count))
+}
+
+fn text_response(status: StatusCode, message: &str) -> Response<Vec<u8>> {
+    Response::builder()
+        .status(status)
+        .header("Access-Control-Allow-Origin", "*")
+        .body(message.as_bytes().to_vec())
+        .expect("static response is valid")
+}
+
+/// Builds the response for one protocol request. Blocks on the drive, so call off the main thread.
+pub fn respond(disc: &Result<DiscHandle, String>, path: &str, query: Option<&str>) -> Response<Vec<u8>> {
+    let disc = match disc {
+        Ok(disc) => disc,
+        Err(message) => return text_response(StatusCode::SERVICE_UNAVAILABLE, message),
+    };
+    let Some(request) = parse_chunk_request(path, query) else {
+        return text_response(StatusCode::BAD_REQUEST, "expected /track/{n}?start={sector}&count={sectors}");
+    };
+    let Some((start_sector, sector_count)) = resolve_range(&disc.toc, &request) else {
+        return text_response(StatusCode::NOT_FOUND, "no such audio track or range");
+    };
+
+    match disc.read_sectors(start_sector, sector_count) {
+        Ok(pcm) => Response::builder()
+            .status(StatusCode::OK)
+            .header("Content-Type", "application/octet-stream")
+            .header("Access-Control-Allow-Origin", "*")
+            .body(pcm)
+            .expect("static response is valid"),
+        Err(message) => text_response(StatusCode::INTERNAL_SERVER_ERROR, &message),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::disc::Track;
+
+    fn toc() -> Toc {
+        Toc {
+            tracks: vec![
+                Track { number: 1, first_sector: 0, last_sector: 999, is_audio: true },
+                Track { number: 2, first_sector: 1000, last_sector: 1099, is_audio: true },
+                Track { number: 3, first_sector: 1100, last_sector: 5000, is_audio: false },
+            ],
+            leadout_sector: 5001,
+        }
+    }
+
+    #[test]
+    fn parses_path_and_query() {
+        assert_eq!(
+            parse_chunk_request("/track/2", Some("start=75&count=150")),
+            Some(ChunkRequest { track_number: 2, start_sector: 75, sector_count: 150 })
+        );
+    }
+
+    #[test]
+    fn applies_defaults_and_rejects_bad_input() {
+        assert_eq!(
+            parse_chunk_request("/track/1", None),
+            Some(ChunkRequest { track_number: 1, start_sector: 0, sector_count: MAX_CHUNK_SECTORS })
+        );
+        assert_eq!(parse_chunk_request("/nope/1", None), None);
+        assert_eq!(parse_chunk_request("/track/1", Some("start=abc")), None);
+    }
+
+    #[test]
+    fn maps_to_absolute_sector() {
+        let request = ChunkRequest { track_number: 2, start_sector: 10, sector_count: 20 };
+        assert_eq!(resolve_range(&toc(), &request), Some((1010, 20)));
+    }
+
+    #[test]
+    fn caps_chunk_size_and_clamps_to_track_end() {
+        let oversized = ChunkRequest { track_number: 1, start_sector: 0, sector_count: 10_000 };
+        assert_eq!(resolve_range(&toc(), &oversized), Some((0, MAX_CHUNK_SECTORS)));
+
+        let near_end = ChunkRequest { track_number: 2, start_sector: 90, sector_count: 375 };
+        assert_eq!(resolve_range(&toc(), &near_end), Some((1090, 10)));
+    }
+
+    #[test]
+    fn rejects_start_past_end_missing_and_data_tracks() {
+        let past_end = ChunkRequest { track_number: 2, start_sector: 100, sector_count: 10 };
+        assert_eq!(resolve_range(&toc(), &past_end), None);
+
+        let missing = ChunkRequest { track_number: 9, start_sector: 0, sector_count: 10 };
+        assert_eq!(resolve_range(&toc(), &missing), None);
+
+        let data_track = ChunkRequest { track_number: 3, start_sector: 0, sector_count: 10 };
+        assert_eq!(resolve_range(&toc(), &data_track), None);
+    }
+}
