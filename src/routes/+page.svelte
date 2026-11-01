@@ -1,17 +1,23 @@
 <script lang="ts">
-  import { Button, InfoBox, Loader } from "svelte-akui";
+  import { Button, InfoBox } from "svelte-akui";
   import { onMount } from "svelte";
   import AlbumHeader from "$lib/components/AlbumHeader/AlbumHeader.svelte";
+  import LastFmScrobbler from "$lib/components/LastFmScrobbler/LastFmScrobbler.svelte";
   import NowPlaying from "$lib/components/NowPlaying/NowPlaying.svelte";
   import SeekBar from "$lib/components/SeekBar/SeekBar.svelte";
   import TrackTable from "$lib/components/TrackTable/TrackTable.svelte";
   import { toTrackRows } from "$lib/components/TrackTable/trackRows";
   import TransportControls from "$lib/components/TransportControls/TransportControls.svelte";
-  import WaveformVisualiser from "$lib/components/WaveformVisualiser/WaveformVisualiser.svelte";
+  import Visualiser from "$lib/components/Visualiser/Visualiser.svelte";
   import { CDPlayer } from "$lib/playback/CDPlayer.svelte";
   import { isDiscReady, isPlaybackActive } from "$lib/playback/playerMachine";
   import { openSettingsWindow } from "$lib/settings/openSettingsWindow";
   import { settings } from "$lib/settings/settings.svelte";
+  import type { VisualiserTrackInfo } from "$lib/visualisers/types";
+  import CoverTheme from "$lib/components/CoverTheme/CoverTheme.svelte";
+  import CoverViewer from "$lib/components/CoverViewer/CoverViewer.svelte";
+  import { wipe } from "$lib/transitions/wipe";
+  import { withViewTransition } from "$lib/transitions/withViewTransition";
   import { setWindowFullscreen } from "$lib/window/setWindowFullscreen";
 
   const player = new CDPlayer();
@@ -25,6 +31,17 @@
       console.error(JSON.stringify({ message: "Could not change fullscreen", error: String(error) }));
     });
   }
+
+  /** The cover is shown full size. */
+  let isCoverOpen = $state(false);
+
+  /** The cover morphs between the header and the full-size view. */
+  const setCoverOpen = (open: boolean) => withViewTransition(() => (isCoverOpen = open));
+
+  // A disc change or eject closes the viewer, so the next disc doesn't open already full size.
+  $effect(() => {
+    if (!player.metadata?.coverUrl) isCoverOpen = false;
+  });
 
   onMount(() => {
     player.start();
@@ -42,28 +59,80 @@
       (track) => player.trackArtist(track),
     ),
   );
-  const noDiscMessage = $derived(
-    player.discError ? `No disc: ${player.discError}` : player.checkingDisc ? "Reading disc…" : "No disc in the drive",
+  const visualiserTrack = $derived.by((): VisualiserTrackInfo | null => {
+    const track = player.tracks.find(({ number }) => number === player.trackNumber);
+    if (!track) return null;
+    return {
+      number: track.number,
+      title: player.trackTitle(track),
+      artist: player.trackArtist(track) || player.metadata?.artist || "",
+      durationSeconds: player.durationSeconds,
+    };
+  });
+  const visualiserAlbum = $derived(
+    player.metadata && {
+      title: player.metadata.album,
+      artist: player.metadata.artist,
+      year: player.metadata.year,
+      coverUrl: player.metadata.coverUrl,
+    },
+  );
+  /** True while the disc is being read or looked up. */
+  const isReadingDisc = $derived(player.status === "loadingMetadata" || (player.status === "noDisc" && player.checkingDisc));
+  /** There is nothing to play yet: no disc, or still reading it. The playback controls are disabled. */
+  const isDiscUnavailable = $derived(player.status === "noDisc" || player.status === "loadingMetadata");
+  const albumPlaceholder = $derived(
+    player.status === "loadingMetadata" ? "Reading…" : player.status === "noDisc" ? "No disc" : "Unknown disc",
   );
 </script>
 
 <NowPlaying {player} />
+<LastFmScrobbler {player} />
+<CoverTheme coverUrl={player.metadata?.coverUrl} reading={isReadingDisc} />
 
 <svelte:window onkeydown={(event) => visualiserOnly && event.key === "Escape" && setVisualiserOnly(false)} />
 
 {#if settings.visualiserEnabled || visualiserOnly}
-  <WaveformVisualiser readWaveform={(target) => player.readWaveform(target)} playing={isSounding} />
+  <!-- Keyed so choosing another visualiser in settings starts a fresh canvas and worker. -->
+  {#key settings.visualiserId}
+    <Visualiser
+      visualiserId={settings.visualiserId}
+      readWaveform={(target) => player.readWaveform(target)}
+      playing={isSounding}
+      track={visualiserTrack}
+      album={visualiserAlbum}
+    />
+  {/key}
+{/if}
+
+{#if isCoverOpen && player.metadata?.coverUrl}
+  <CoverViewer
+    coverUrl={player.metadata.coverUrl}
+    alt="Cover of {player.metadata.album}"
+    onclose={() => setCoverOpen(false)}
+  />
 {/if}
 
 <main class:hidden={visualiserOnly}>
   <header>
-    {#if player.metadata}
-      <div class="album"><AlbumHeader metadata={player.metadata} /></div>
-    {/if}
+    <!-- Always shown, so the header keeps its size when there is no disc. A new disc wipes over the old one. -->
+    <div class="album">
+      {#key player.metadata?.discId ?? "none"}
+        <div class="album-slot" transition:wipe>
+          <AlbumHeader
+            metadata={player.metadata}
+            message={albumPlaceholder}
+            busy={isReadingDisc}
+            coverOpen={isCoverOpen}
+            onopencover={() => setCoverOpen(true)}
+          />
+        </div>
+      {/key}
+    </div>
     <div class="controls">
       <TransportControls
         playing={isSounding}
-        disabled={!hasPlayableTrack || !isDiscReady(player.status)}
+        disabled={isDiscUnavailable || !hasPlayableTrack || !isDiscReady(player.status)}
         canPrevious={isActive}
         canNext={player.queue.length > 1}
         onprevious={() => void player.previous()}
@@ -73,7 +142,7 @@
       <SeekBar
         positionSeconds={player.positionSeconds}
         durationSeconds={player.durationSeconds}
-        disabled={!isActive}
+        disabled={isDiscUnavailable || !isActive}
         onseek={(seconds) => void player.seek(seconds)}
       />
       <div class="window-buttons">
@@ -108,11 +177,7 @@
     <InfoBox variant="error" title="Playback stopped">{player.error}</InfoBox>
   {/if}
 
-  {#if player.status === "noDisc"}
-    <p class="message">{noDiscMessage}</p>
-  {:else if player.status === "loadingMetadata"}
-    <p class="message"><Loader /> Looking up the disc…</p>
-  {:else}
+  {#if !isDiscUnavailable}
     {#if !player.metadata && player.metadataError}
       <p class="hint">Track names unavailable: {player.metadataError}.</p>
     {/if}
@@ -154,9 +219,16 @@
 
   /* As wide as the title or artist needs, up to the max; longer text is scaled down to fit. */
   .album {
+    /* The old and new album share one cell while they wipe, so they overlap instead of stacking. */
+    display: grid;
     flex: 0 1 auto;
     min-width: 0;
     max-width: 20rem;
+  }
+
+  .album-slot {
+    grid-area: 1 / 1;
+    min-width: 0;
   }
 
   .controls {
@@ -192,15 +264,6 @@
     background: color-mix(in srgb, var(--akui-bg) 55%, transparent);
     backdrop-filter: blur(12px);
     border-radius: var(--akui-radius-m);
-  }
-
-  .message {
-    display: flex;
-    gap: 0.75rem;
-    align-items: center;
-    justify-content: center;
-    padding: 3rem 1rem;
-    color: var(--akui-fg-secondary);
   }
 
   .hint {

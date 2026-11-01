@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AppSettings, type SettingsStorage, type SettingsSync, type SettingsValues } from "./settings.svelte";
+import { AppSettings, DEFAULT_SETTINGS, type SettingsStorage, type SettingsSync, type SettingsValues } from "./settings.svelte";
 
 const makeStorage = (initial: Record<string, string> = {}): SettingsStorage & { items: Record<string, string> } => {
   const items = { ...initial };
@@ -51,9 +51,59 @@ describe("AppSettings", () => {
 
     settings.musicBrainzEnabled = false;
 
-    expect(JSON.parse(storage.items[KEY])).toEqual({ musicBrainzEnabled: false, fadeEnabled: true });
+    const expected = { ...DEFAULT_SETTINGS, musicBrainzEnabled: false };
+    expect(JSON.parse(storage.items[KEY])).toEqual(expected);
     expect(published).toHaveLength(1);
-    expect(published[0].values).toEqual({ musicBrainzEnabled: false, fadeEnabled: true });
+    expect(published[0].values).toEqual(expected);
+  });
+
+  it("starts with the visualiser on, and saves turning it off", () => {
+    const storage = makeStorage();
+    const settings = new AppSettings({ storage });
+    expect(settings.visualiserEnabled).toBe(true);
+
+    settings.visualiserEnabled = false;
+
+    expect(JSON.parse(storage.items[KEY]).visualiserEnabled).toBe(false);
+  });
+
+  it("starts on the waveform visualiser, saves a choice, and ignores unknown ones", () => {
+    const storage = makeStorage();
+    const settings = new AppSettings({ storage });
+    expect(settings.visualiserId).toBe("waveform");
+
+    settings.visualiserId = "rings";
+    expect(JSON.parse(storage.items[KEY]).visualiserId).toBe("rings");
+
+    const stale = makeStorage({ [KEY]: JSON.stringify({ visualiserId: "removed-one" }) });
+    expect(new AppSettings({ storage: stale }).visualiserId).toBe("waveform");
+  });
+
+  it("starts with no Last.fm login, and saves the username and password hash", () => {
+    const storage = makeStorage();
+    const settings = new AppSettings({ storage });
+    expect([settings.lastFmUsername, settings.lastFmPasswordHash]).toEqual(["", ""]);
+
+    settings.lastFmUsername = "ash";
+    settings.lastFmPasswordHash = "2ab96390c7dbe3439de74d0c9b0b1767";
+
+    expect(JSON.parse(storage.items[KEY])).toMatchObject({
+      lastFmUsername: "ash",
+      lastFmPasswordHash: "2ab96390c7dbe3439de74d0c9b0b1767",
+    });
+  });
+
+  it("starts with no cover colours, saves them, and ignores malformed ones", () => {
+    const storage = makeStorage();
+    const settings = new AppSettings({ storage });
+    expect(settings.coverColours).toBeNull();
+
+    const colours = { primary: { hue: 29, chroma: 0.2 }, secondary: null };
+    settings.coverColours = colours;
+    expect(JSON.parse(storage.items[KEY]).coverColours).toEqual(colours);
+
+    const bad = makeStorage({ [KEY]: JSON.stringify({ coverColours: { primary: { hue: "red" } } }) });
+    expect(new AppSettings({ storage: bad }).coverColours).toBeNull();
   });
 
   it("starts with fading on, and saves turning it off", () => {
@@ -74,7 +124,7 @@ describe("AppSettings", () => {
     receive({ musicBrainzEnabled: false });
 
     expect(settings.musicBrainzEnabled).toBe(false);
-    expect(JSON.parse(storage.items[KEY])).toEqual({ musicBrainzEnabled: false, fadeEnabled: true });
+    expect(JSON.parse(storage.items[KEY])).toEqual({ ...DEFAULT_SETTINGS, musicBrainzEnabled: false });
     expect(published).toEqual([]);
   });
 

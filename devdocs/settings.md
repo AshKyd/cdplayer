@@ -23,10 +23,15 @@ User settings, kept in a store that every window shares, saved to `localStorage`
 - A window opened later reads `localStorage`, so it starts correct; events cover changes while it is open.
 - Current settings:
   - `musicBrainzEnabled` (default on): `CDPlayer` looks discs up only when it is on. When off nothing is sent, the disc is ready straight away, and no error is shown. It applies from the next disc read.
+  - `autoplayEnabled` (default off): a disc plays from the first track once it is ready (after the metadata lookup). Read by `CDPlayer` each time a disc settles.
   - `fadeEnabled` (default on): the audio fades in and out over 100 ms on play, resume and pause. Read each time, so it applies at once.
+  - `visualiserEnabled` (default on): the page shows the `Visualiser` behind the player. When off the component is unmounted, so nothing is drawn or measured. It applies at once, in every window.
+  - `visualiserId` (default `waveform`): which visualiser to draw, from `VISUALISERS`. Unknown ids fall back to the default. Changing it re-creates the canvas and worker.
+  - `lastFmUsername`, `lastFmPasswordHash` (default empty): the Last.fm login, set in the "Last.fm" section. Only the MD5 of the password is stored. Read each time `LastFmScrobbler` sends, so it applies at once. See [last-fm.md](last-fm.md).
+  - `coverColours` (default `null`): the `{ primary, secondary }` colours of the current cover, written by `CoverTheme` and applied by `CoverAccent` in every window. It is kept between runs so the app opens already tinted. `CoverTheme` replaces it once the disc has been read, and sets `null` if the disc has no usable cover. See [cover-theme.md](cover-theme.md).
 
 ## Limits
 
 - Outside Tauri (plain browser, tests) the sync does nothing; the store still works in one window.
-- The settings window has one section ("General").
+- The settings window has two sections ("General", "Last.fm").
 - No menu item or keyboard shortcut for the settings window; that would need Rust.

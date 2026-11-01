@@ -1,3 +1,5 @@
+import { DEFAULT_VISUALISER_ID, isVisualiserId, type VisualiserId } from "$lib/visualisers/visualiserCatalogue";
+import { isCoverColours, type CoverColours } from "$lib/theme/coverColours/pickCoverColours";
 import { tauriSettingsSync } from "./tauriSettingsSync";
 
 /** What the user can change. Add new settings here with a default; older saved settings fill in from it. */
@@ -6,11 +8,29 @@ export interface SettingsValues {
   readonly musicBrainzEnabled: boolean;
   /** Fade the sound in and out over 100 ms when playing and pausing, to avoid clicks. */
   readonly fadeEnabled: boolean;
+  /** Start playing from the first track as soon as a disc is ready. */
+  readonly autoplayEnabled: boolean;
+  /** Draw the waveform visualiser behind the player. */
+  readonly visualiserEnabled: boolean;
+  /** Which visualiser to draw (see `VISUALISERS`). */
+  readonly visualiserId: VisualiserId;
+  /** Last.fm account name. Empty means not signed in. */
+  readonly lastFmUsername: string;
+  /** MD5 hex of the Last.fm password, which is all Last.fm's login needs. The password itself is never stored. Empty means none. */
+  readonly lastFmPasswordHash: string;
+  /** Colours taken from the current cover, applied to the theme in every window. `null` when there is none. Reset when the app loads. */
+  readonly coverColours: CoverColours | null;
 }
 
 export const DEFAULT_SETTINGS: SettingsValues = {
   musicBrainzEnabled: true,
   fadeEnabled: true,
+  autoplayEnabled: false,
+  visualiserEnabled: true,
+  visualiserId: DEFAULT_VISUALISER_ID,
+  lastFmUsername: "",
+  lastFmPasswordHash: "",
+  coverColours: null,
 };
 
 const STORAGE_KEY = "cdplayer.settings";
@@ -53,6 +73,15 @@ const pickKnownValues = (incoming: Partial<SettingsValues>): SettingsValues => (
   musicBrainzEnabled:
     typeof incoming.musicBrainzEnabled === "boolean" ? incoming.musicBrainzEnabled : DEFAULT_SETTINGS.musicBrainzEnabled,
   fadeEnabled: typeof incoming.fadeEnabled === "boolean" ? incoming.fadeEnabled : DEFAULT_SETTINGS.fadeEnabled,
+  autoplayEnabled:
+    typeof incoming.autoplayEnabled === "boolean" ? incoming.autoplayEnabled : DEFAULT_SETTINGS.autoplayEnabled,
+  visualiserEnabled:
+    typeof incoming.visualiserEnabled === "boolean" ? incoming.visualiserEnabled : DEFAULT_SETTINGS.visualiserEnabled,
+  visualiserId: isVisualiserId(incoming.visualiserId) ? incoming.visualiserId : DEFAULT_SETTINGS.visualiserId,
+  lastFmUsername: typeof incoming.lastFmUsername === "string" ? incoming.lastFmUsername : DEFAULT_SETTINGS.lastFmUsername,
+  lastFmPasswordHash:
+    typeof incoming.lastFmPasswordHash === "string" ? incoming.lastFmPasswordHash : DEFAULT_SETTINGS.lastFmPasswordHash,
+  coverColours: isCoverColours(incoming.coverColours) ? incoming.coverColours : DEFAULT_SETTINGS.coverColours,
 });
 
 /**
@@ -101,6 +130,54 @@ export class AppSettings implements SettingsValues {
 
   set fadeEnabled(enabled: boolean) {
     this.#change({ fadeEnabled: enabled });
+  }
+
+  get autoplayEnabled(): boolean {
+    return this.#current.autoplayEnabled;
+  }
+
+  set autoplayEnabled(enabled: boolean) {
+    this.#change({ autoplayEnabled: enabled });
+  }
+
+  get visualiserEnabled(): boolean {
+    return this.#current.visualiserEnabled;
+  }
+
+  set visualiserEnabled(enabled: boolean) {
+    this.#change({ visualiserEnabled: enabled });
+  }
+
+  get visualiserId(): VisualiserId {
+    return this.#current.visualiserId;
+  }
+
+  set visualiserId(id: VisualiserId) {
+    this.#change({ visualiserId: id });
+  }
+
+  get lastFmUsername(): string {
+    return this.#current.lastFmUsername;
+  }
+
+  set lastFmUsername(username: string) {
+    this.#change({ lastFmUsername: username });
+  }
+
+  get lastFmPasswordHash(): string {
+    return this.#current.lastFmPasswordHash;
+  }
+
+  set lastFmPasswordHash(passwordHash: string) {
+    this.#change({ lastFmPasswordHash: passwordHash });
+  }
+
+  get coverColours(): CoverColours | null {
+    return this.#current.coverColours;
+  }
+
+  set coverColours(colours: CoverColours | null) {
+    this.#change({ coverColours: colours });
   }
 
   /** A plain copy of every setting. */
