@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
+  import { cdTrackBaseUrl } from "$lib/disc/cdTrackUrl";
   import { DiscWatcher } from "$lib/disc/DiscWatcher.svelte";
   import { SECTORS_PER_SECOND, type Track } from "$lib/disc/types";
+  import { chunkUrl } from "$lib/playback/chunks";
   import { CDPlayer } from "$lib/playback/CDPlayer.svelte";
 
   const player = new CDPlayer();
@@ -13,6 +15,8 @@
   });
   /** Where `play()` starts, in seconds into the track. */
   let startAtSeconds = $state(0);
+  /** Set while the seek bar is being dragged, so the moving position doesn't fight the thumb. */
+  let scrubSeconds = $state<number | null>(null);
 
   /** Result of the last test chunk read, keyed by track number. */
   let chunkResults = $state<Record<number, string>>({});
@@ -37,7 +41,7 @@
   const testChunk = async ({ number }: Track) => {
     chunkResults[number] = "reading…";
     const startedAt = performance.now();
-    const response = await fetch(`cd-track://localhost/track/${number}?start=0&count=375`).catch(
+    const response = await fetch(chunkUrl(cdTrackBaseUrl(), number, 0, 375)).catch(
       (error) => String(error),
     );
     if (typeof response === "string") {
@@ -74,6 +78,24 @@
         Track {player.trackNumber} · {player.status} · {formatClock(player.positionSeconds)}
       {/if}
     </span>
+  </section>
+  <section class="transport">
+    <input
+      class="seek"
+      type="range"
+      min="0"
+      max={player.durationSeconds}
+      step="1"
+      value={scrubSeconds ?? player.positionSeconds}
+      disabled={player.status === "idle"}
+      aria-label="Seek"
+      oninput={(event) => (scrubSeconds = Number(event.currentTarget.value))}
+      onchange={(event) => {
+        scrubSeconds = null;
+        player.seek(Number(event.currentTarget.value));
+      }}
+    />
+    <span>{formatClock(scrubSeconds ?? player.positionSeconds)} / {formatClock(player.durationSeconds)}</span>
   </section>
   <section class="transport">
     <span>Up next: {player.queue.slice(1).map(({ number }) => number).join(", ") || "none"}</span>
@@ -132,6 +154,11 @@
     gap: 0.75rem;
     align-items: center;
     margin-block: 0.25rem;
+  }
+
+  .seek {
+    flex: 1;
+    max-width: 24rem;
   }
 
   .warning {

@@ -119,6 +119,135 @@ describe("WebAudioHandler", () => {
     });
   });
 
+  /** Three 1 s segments, starting 0.05 s, 1.05 s and 2.05 s on the context clock. Latency is zero. */
+  const withThreeSeconds = () => {
+    const parts = setup();
+    parts.context.baseLatency = 0;
+    [1, 2, 3].forEach(() => parts.handler.appendSegment(silence(1)));
+    return parts;
+  };
+
+  describe("dropAfter", () => {
+    it("removes audio from the cut on, and the next segment follows on from the cut", () => {
+      const { context, handler } = withThreeSeconds();
+
+      expect(handler.dropAfter(1)).toBe(true);
+      expect(context.sources.map((source) => source.stopped)).toEqual([false, true, true]);
+      expect(handler.leadSeconds).toBeCloseTo(1.05, 5);
+
+      handler.appendSegment(silence(1));
+      expect(context.sources[3].startedAt).toBeCloseTo(1.05, 5);
+    });
+
+    it("doesn't report the dropped audio as ended, but does when the rest finishes", () => {
+      const { context, handler } = withThreeSeconds();
+      let ended = 0;
+      handler.onEnded = () => ended++;
+
+      handler.dropAfter(1);
+      context.sources[1].finish();
+      context.sources[2].finish();
+      expect(ended).toBe(0);
+
+      context.sources[0].finish();
+      expect(ended).toBe(1);
+    });
+
+    it("cuts nothing if any of that audio has already started", () => {
+      const { context, handler } = withThreeSeconds();
+      context.currentTime = 1.5;
+
+      expect(handler.dropAfter(1)).toBe(false);
+      expect(context.sources.every((source) => !source.stopped)).toBe(true);
+    });
+
+    it("is a no-op past the end", () => {
+      const { context, handler } = withThreeSeconds();
+
+      expect(handler.dropAfter(3)).toBe(true);
+      expect(context.sources.every((source) => !source.stopped)).toBe(true);
+    });
+  });
+
+  describe("skipTo", () => {
+    it("plays the audio at the time now, with what follows right after it", () => {
+      const { context, handler } = withThreeSeconds();
+      context.currentTime = 0.2;
+
+      expect(handler.skipTo(1)).toBe(true);
+
+      expect(context.sources.slice(0, 3).every((source) => source.stopped)).toBe(true);
+      const [second, third] = context.sources.slice(3);
+      expect(second.startedAt).toBeCloseTo(0.25, 5);
+      expect(second.offset).toBe(0);
+      expect(third.startedAt).toBeCloseTo(1.25, 5);
+    });
+
+    it("reports the new position straight away and follows the clock from there", () => {
+      const { context, handler } = withThreeSeconds();
+      context.currentTime = 0.2;
+      handler.skipTo(1);
+
+      context.currentTime = 0.25;
+      expect(handler.playedSeconds).toBeCloseTo(1, 5);
+      context.currentTime = 0.75;
+      expect(handler.playedSeconds).toBeCloseTo(1.5, 5);
+      // 2 s remain after the skip, starting at 0.25 s: they end at 2.25 s, 1.5 s from now.
+      expect(handler.leadSeconds).toBeCloseTo(1.5, 5);
+    });
+
+    it("can land inside a segment", () => {
+      const { context, handler } = withThreeSeconds();
+      context.currentTime = 0.2;
+
+      expect(handler.skipTo(1.5)).toBe(true);
+
+      const [first, second] = context.sources.slice(3);
+      expect(first.startedAt).toBeCloseTo(0.25, 5);
+      expect(first.offset).toBeCloseTo(0.5, 5);
+      expect(second.startedAt).toBeCloseTo(0.75, 5);
+      // 1.5 s remain after the cut, starting at 0.25 s, with the clock at 0.2 s.
+      expect(handler.leadSeconds).toBeCloseTo(1.55, 5);
+    });
+
+    it("lets the next segment follow on from the end after a skip", () => {
+      const { context, handler } = withThreeSeconds();
+      context.currentTime = 0.2;
+      handler.skipTo(1);
+
+      handler.appendSegment(silence(1));
+
+      // Two seconds were left after the skip, so the new segment starts 2 s after the new anchor.
+      expect(context.sources.at(-1)!.startedAt).toBeCloseTo(0.25 + 2, 5);
+    });
+
+    it("can skip twice, and drop audio after a skip", () => {
+      const { context, handler } = withThreeSeconds();
+      context.currentTime = 0.2;
+      handler.skipTo(1);
+      handler.skipTo(2);
+
+      expect(handler.playedSeconds).toBeCloseTo(2, 5);
+      expect(handler.dropAfter(3)).toBe(true);
+      expect(handler.leadSeconds).toBeCloseTo(1.05, 5);
+    });
+
+    it("refuses a time that isn't buffered, and changes nothing", () => {
+      const { context, handler } = withThreeSeconds();
+
+      expect(handler.skipTo(3)).toBe(false);
+      expect(handler.skipTo(99)).toBe(false);
+      expect(context.sources.every((source) => !source.stopped)).toBe(true);
+
+      context.sources[0].finish();
+      expect(handler.skipTo(0.5)).toBe(false);
+    });
+
+    it("refuses when nothing has been scheduled", () => {
+      expect(setup().handler.skipTo(0)).toBe(false);
+    });
+  });
+
   describe("queued audio", () => {
     it("is true while segments are scheduled and calls onEnded when the last finishes", () => {
       const { context, handler } = setup();

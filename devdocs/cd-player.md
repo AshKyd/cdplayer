@@ -6,12 +6,13 @@ Plays a queue of CD tracks gaplessly and holds the playback state for the UI. It
 
 - `src/lib/playback/CDPlayer.svelte.ts`: the class (Svelte 5 runes).
 - `src/lib/playback/chunks.ts`: start sector, chunk size, URL and `TrackSpan` helpers.
+- `src/lib/disc/cdTrackUrl.ts`: `cdTrackBaseUrl()`, the platform's root URL for the `cd-track` protocol.
 - `src/lib/disc/types.ts`: `Track`, `Toc` and constants.
 
 ## API
 
-- `new CDPlayer({ handler, fetchChunk })`: both optional. Tests pass a `WebAudioHandler` on a fake `AudioContext` and a fake chunk fetch.
-- State: `status`, `trackNumber`, `positionSeconds`, `error`, `queue`, `unreadableSectors`, `interrupted`.
+- `new CDPlayer({ handler, fetchChunk, baseUrl })`: all optional. Tests pass a `WebAudioHandler` on a fake `AudioContext` and a fake chunk fetch. `baseUrl` is the `cd-track` protocol root, by default from `cdTrackBaseUrl()`.
+- State: `status`, `trackNumber`, `positionSeconds`, `durationSeconds` (length of the current track), `error`, `queue`, `unreadableSectors`, `interrupted`.
 - `status`:
   - `idle`: nothing playing.
   - `loading`: waiting for the first chunk of a run.
@@ -22,8 +23,9 @@ Plays a queue of CD tracks gaplessly and holds the playback state for the UI. It
 - `queue`: the playing track first, then the tracks after it.
 - `play(track, timeSeconds = 0)`: stops the current queue, then plays `track` from `timeSeconds`.
 - `enqueue(track)`: adds an audio track to the end of the queue. Starts it if idle. Data tracks are ignored.
-- `clearQueue()`: drops tracks that have not been fetched yet.
-- `next()`: skips to the next queued track.
+- `clearQueue()`: removes every track after the current one, including tracks already buffered (see Behaviour).
+- `next()`: skips to the next queued track. Instant if that track's start is already buffered.
+- `seek(seconds)`: moves within the current track and keeps the queue. Instant if that point is already buffered. A pause is kept.
 - `stop()`, `pause()`, `resume()`, `togglePause()`.
 
 ## Behaviour
@@ -39,12 +41,19 @@ Plays a queue of CD tracks gaplessly and holds the playback state for the UI. It
 - `pause()` works from `loading`, `buffering` and `playing`. Paused during `loading`, the first chunk still arrives but stays silent until `resume()`. `resume()` goes back to `playing` if audio is queued, to `buffering` if audio had started and run dry, and to `loading` if no chunk had arrived.
 - Interruptions: when the handler reports the system stopped the audio (`onInterruption(true)`), a playing or buffering player becomes `paused` with `interrupted` set. The handler tries to resume by itself; if that works the player returns to its status and clears `interrupted`. If the webview needs a user gesture, the user presses Play, and `resume()` does it. A pause made by the user is never undone by the system recovering.
 - `positionSeconds` comes from `WebAudioHandler.playedSeconds`, which allows for output latency, so it follows what is heard.
-- The demo UI is in `src/routes/+page.svelte`: Play and Queue buttons per track, Play/Pause, Stop, Next, Clear queue, a start-time input and an "Up next" list.
+- Buffered tracks can be taken back, because scheduled audio that hasn't started can be stopped and track boundaries are exact chunk boundaries:
+  - `clearQueue()` calls `WebAudioHandler.dropAfter()` at the next track's start, rewinds `#scheduledSeconds`, removes the later spans and queue entries, and bumps `#fetchGeneration` so a fetch loop that was reading one of those tracks stops. If the next track has already started playing, nothing is dropped and only unfetched tracks are removed.
+  - `next()` calls `WebAudioHandler.skipTo()` at the next track's start. The buffered audio is scheduled again to play now, from the same buffers, so the switch is instant with no fetch. If the next track isn't buffered yet (the loop only reaches it when the current track is within about 30 s of its end), it flushes and restarts, and waits for the first chunk.
+  - `seek()` calls `skipTo()` when the target is inside audio that is still buffered. Otherwise (further ahead than is buffered, or back in audio that has played out) it restarts the current track from the target, keeping the rest of the queue.
+- Chunk URLs are built on `cdTrackBaseUrl()`: `cd-track://localhost/` on macOS and Linux, `http://cd-track.localhost/` on Windows and Android. It asks Tauri's `convertFileSrc` for the platform prefix, and falls back to the first form outside Tauri.
+- The demo UI is in `src/routes/+page.svelte`: Play and Queue buttons per track, Play/Pause, Stop, Next, Clear queue, a seek bar with the position and track length, a start-time input and an "Up next" list.
 
 ## Known issues
 
-- `clearQueue()` cannot remove a track that is already buffered. The next track is fetched up to about 30 s before the current one ends, and `WebAudioHandler` has no way yet to drop audio it has scheduled. Tracks not yet fetched are removed. In practice it only matters in the last ~30 s of a track, or when tracks are short. A fix is a handler method that stops sources that haven't started and rewinds its frame count: track boundaries are chunk boundaries, so it would be exact.
-- `next()` is not gapless: it flushes the buffer and restarts at the next queued track. The same handler method would fix this.
+- `next()` is only instant when the next track is already buffered, which is the last ~30 s of the current track. Earlier than that it restarts and waits for the first chunk (a second or more on a drive that has spun down).
+- `seek()` is only instant within buffered audio (up to about 30 s ahead of the playhead, and nothing behind it). Any other seek restarts the track from the target.
+- `clearQueue()` and `next()` can't undo a next track that has already started playing; a late `clearQueue()` leaves it.
+- `seek()` and `next()` jump to the chosen frame; they do not fade, so a click is possible at the cut.
 - The first chunk after idle can take a few seconds while the drive spins up. `status` stays `loading` until it arrives.
 - Sectors the drive can't read are sent as silence by the bridge (see [cd-bridge.md](cd-bridge.md)). `unreadableSectors` adds up the `X-Unreadable-Sectors` header of each chunk for the current run, and the demo UI shows a warning. Playback carries on.
 - A chunk the bridge can't serve at all (disc ejected, or more than 32 bad sectors in one chunk, about 0.4 s) stops playback and clears the queue, rather than playing silence.
@@ -54,14 +63,14 @@ Plays a queue of CD tracks gaplessly and holds the playback state for the UI. It
 - Unreadable sectors are silent, not interpolated, so a click or dropout is audible. Damage the drive reports as read fine is not detected.
 - PCM conversion runs on the main thread. If it causes jank, move it to a Web Worker.
 - Disc changes are found by the page's [DiscWatcher](disc-watcher.md), which calls `stop()` when the disc changes. `CDPlayer` itself does not know about discs: if a disc is swapped during a pause, the old queue keeps its (now wrong) tracks until a read fails.
-- Only tested with the Rust bridge on macOS. Windows and Linux are untested.
+- Only tested with the Rust bridge on macOS. Windows and Linux are untested. The Windows/Android URL form comes from Tauri's `convertFileSrc` and is only tested against a stand-in for it.
 
 ## Limits
 
-- No seek bar, reordering, previous or visualiser. A seek is `play(track, time)` again.
+- No reordering, previous or visualiser.
 - Audio CD tracks only. Data tracks are ignored by `enqueue()`.
 
 ## Tests
 
-- `npm test` covers `pcm.ts`, `chunks.ts` (including `currentSpanIndex`) and `CDPlayer` itself: loading, buffering, pausing from each state, interruptions, position latency and `stop()`. These run on `FakeAudioContext` (`FakeAudioContext.testing.ts`, a clock and state the test controls) and a fake chunk fetch that answers when the test says.
+- `npm test` covers `pcm.ts`, `chunks.ts` (including `currentSpanIndex` and `chunkUrl`), `cdTrackUrl.ts` and `CDPlayer` itself: loading, buffering, pausing from each state, interruptions, position latency, `clearQueue()`, `next()`, `seek()` and `stop()`. These run on `FakeAudioContext` (`FakeAudioContext.testing.ts`, a clock and state the test controls) and a fake chunk fetch that answers when the test says.
 - Real audio output, gapless quality by ear and a real drive are tested by hand.

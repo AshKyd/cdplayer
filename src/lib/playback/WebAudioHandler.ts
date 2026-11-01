@@ -11,12 +11,28 @@ interface Options {
   createContext?: () => AudioContext;
 }
 
+/** One scheduled piece of audio. Segments are back to back, in order of `startFrame`. */
+interface Segment {
+  source: AudioBufferSourceNode;
+  /** Kept so the segment can be scheduled again at another time (`skipTo`). */
+  buffer: AudioBuffer;
+  /** Frames at the start of `buffer` that are skipped. Non-zero only for the segment `skipTo` lands inside. */
+  offsetFrames: number;
+  /** Frames that play. */
+  frames: number;
+  /** Frames from the anchor (`#baseTime`) to where this segment starts. */
+  startFrame: number;
+}
+
 /**
  * Schedules PCM segments back to back on a Web Audio clock. It knows nothing about where the audio
  * comes from (CD sectors, MP3 files), so any source can feed it.
  *
- * Each segment starts at `baseTime + scheduledFrames / sampleRate`. Frames are counted as integers rather
+ * Each segment starts at `baseTime + startFrame / sampleRate`. Frames are counted as integers rather
  * than summing `buffer.duration`, which would drift and open gaps between segments.
+ *
+ * Times given to `dropAfter` and `skipTo` are on the "timeline": seconds of audio since the first segment,
+ * continuing across underruns. It is the same clock as `playedSeconds`.
  */
 export class WebAudioHandler {
   /** Called once every scheduled segment has finished playing. */
@@ -30,9 +46,10 @@ export class WebAudioHandler {
 
   #createContext: () => AudioContext;
   #context: AudioContext | null = null;
-  #sources = new Set<AudioBufferSourceNode>();
+  #segments: Segment[] = [];
   #baseTime = 0;
   #scheduledFrames = 0;
+  /** Timeline seconds at `#baseTime`: audio already played before the current anchor was set. */
   #playedBeforeBase = 0;
   /** True from `suspend()` until `resume()`/`stop()`. A suspended context is only an interruption when this is false. */
   #suspendRequested = false;
@@ -72,7 +89,7 @@ export class WebAudioHandler {
 
   /** True while at least one segment is scheduled and hasn't finished. */
   get hasQueuedAudio(): boolean {
-    return this.#sources.size > 0;
+    return this.#segments.length > 0;
   }
 
   /**
@@ -114,7 +131,7 @@ export class WebAudioHandler {
     buffer.copyToChannel(right as Float32Array<ArrayBuffer>, 1);
 
     // Start fresh, or re-anchor if playback caught up with the schedule (underrun).
-    const nothingQueued = this.#sources.size === 0;
+    const nothingQueued = this.#segments.length === 0;
     if (nothingQueued) {
       // Keep already-played time so `playedSeconds` stays continuous across a re-anchor.
       this.#playedBeforeBase += this.#scheduledFrames / SAMPLE_RATE;
@@ -122,18 +139,55 @@ export class WebAudioHandler {
       this.#scheduledFrames = 0;
     }
 
-    const source = context.createBufferSource();
-    source.buffer = buffer;
-    source.connect(context.destination);
-    source.onended = () => {
-      this.#sources.delete(source);
-      source.disconnect();
-      if (this.#sources.size === 0) this.onEnded();
-    };
-    source.start(this.#baseTime + this.#scheduledFrames / SAMPLE_RATE);
-
-    this.#sources.add(source);
+    this.#schedule(context, buffer, this.#scheduledFrames, 0);
     this.#scheduledFrames += buffer.length;
+  }
+
+  /**
+   * Removes the audio that starts at or after `timelineSeconds` and rewinds, so the next `appendSegment`
+   * follows on from the cut. Nothing is cut if any of that audio has already started (it can't be
+   * unplayed), and `false` is returned. The cut should fall on a segment boundary, such as the start of a track.
+   */
+  dropAfter(timelineSeconds: number): boolean {
+    const context = this.#context;
+    if (!context) return true;
+
+    const cutFrame = this.#frameAtTimeline(timelineSeconds);
+    const dropped = this.#segments.filter(({ startFrame }) => startFrame >= cutFrame);
+    if (dropped.length === 0) return true;
+    if (dropped.some((segment) => this.#hasStarted(context, segment))) return false;
+
+    dropped.forEach((segment) => this.#detach(segment));
+    this.#segments = this.#segments.filter((segment) => !dropped.includes(segment));
+    this.#scheduledFrames = dropped[0].startFrame;
+    return true;
+  }
+
+  /**
+   * Jumps playback to `timelineSeconds`, which must be inside audio that is still scheduled (not yet played
+   * out, not past the end). The audio from there on is scheduled again to play now, from the same buffers,
+   * so a skip within buffered audio is instant. Returns `false`, changing nothing, if that time is not buffered.
+   */
+  skipTo(timelineSeconds: number): boolean {
+    const context = this.#context;
+    if (!context || this.#segments.length === 0) return false;
+
+    const cutFrame = this.#frameAtTimeline(timelineSeconds);
+    if (cutFrame < this.#segments[0].startFrame || cutFrame >= this.#scheduledFrames) return false;
+
+    const kept = this.#segments.filter(({ startFrame, frames }) => startFrame + frames > cutFrame);
+    this.#segments.forEach((segment) => this.#detach(segment));
+    this.#segments = [];
+
+    // The audio at the cut now plays at the new anchor; everything after keeps its distance from it.
+    this.#baseTime = context.currentTime + START_DELAY_SECONDS;
+    kept.forEach(({ buffer, startFrame, offsetFrames }) => {
+      const skippedFrames = Math.max(0, cutFrame - startFrame);
+      this.#schedule(context, buffer, Math.max(0, startFrame - cutFrame), offsetFrames + skippedFrames);
+    });
+    this.#scheduledFrames -= cutFrame;
+    this.#playedBeforeBase = timelineSeconds;
+    return true;
   }
 
   /** Pauses. Works before the first segment too: the context is then created already suspended. */
@@ -149,18 +203,45 @@ export class WebAudioHandler {
 
   /** Silences and drops everything scheduled, and resets the clock for the next `appendSegment`. */
   stop(): void {
-    const sources = [...this.#sources];
-    this.#sources.clear();
-    sources.forEach((source) => {
-      source.onended = null;
-      source.stop();
-      source.disconnect();
-    });
+    this.#segments.forEach((segment) => this.#detach(segment));
+    this.#segments = [];
     this.#scheduledFrames = 0;
     this.#baseTime = 0;
     this.#playedBeforeBase = 0;
     // A suspended context would delay the next play; make sure it is running again.
     this.#suspendRequested = false;
     void this.#context?.resume().catch(() => {});
+  }
+
+  /** Schedules `buffer` from its `offsetFrames`-th frame to start `startFrame` frames after the anchor. */
+  #schedule(context: AudioContext, buffer: AudioBuffer, startFrame: number, offsetFrames: number): void {
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+    source.connect(context.destination);
+
+    const segment: Segment = { source, buffer, offsetFrames, frames: buffer.length - offsetFrames, startFrame };
+    source.onended = () => {
+      this.#segments = this.#segments.filter((other) => other !== segment);
+      source.disconnect();
+      if (this.#segments.length === 0) this.onEnded();
+    };
+    source.start(this.#baseTime + startFrame / SAMPLE_RATE, offsetFrames / SAMPLE_RATE);
+    this.#segments.push(segment);
+  }
+
+  /** Stops a segment without letting it report that it ended. */
+  #detach({ source }: Segment): void {
+    source.onended = null;
+    source.stop();
+    source.disconnect();
+  }
+
+  #hasStarted(context: AudioContext, { startFrame }: Segment): boolean {
+    return this.#baseTime + startFrame / SAMPLE_RATE <= context.currentTime;
+  }
+
+  /** The frame, counted from the anchor, that a timeline time falls on. */
+  #frameAtTimeline(timelineSeconds: number): number {
+    return Math.round((timelineSeconds - this.#playedBeforeBase) * SAMPLE_RATE);
   }
 }

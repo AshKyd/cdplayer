@@ -38,7 +38,7 @@ The Rust backend bridges the gap between raw hardware and the web view. Details:
 * **cd-da-reader Integration:** Uses `cd-da-reader` to read the Table of Contents (TOC). It gives each track's start address (LBA); a track ends where the next begins, or at the lead-out.
 * **Chunked Sector Reads:** Rust reads raw 16-bit, 44.1kHz stereo PCM sectors (2352 bytes, 75 per second) for a requested sector range. It never reads or holds a whole track. One chunk is 375 sectors (5 s, 882,000 bytes).
 * **No WAV Wrapping:** Chunks are returned as headerless PCM. The frontend already knows the format (CD audio is always 16-bit/44.1kHz/stereo), and converts the samples itself, so `decodeAudioData()` is not used.
-* **Chunk Serving:** Uses Tauri's custom URI scheme with an explicit sector range, e.g. `cd-track://localhost/track/1?start=0&count=375` (on Windows the scheme is served as `http://cd-track.localhost`). Each request is one blocking drive read, run on a single dedicated reader thread so reads never overlap.
+* **Chunk Serving:** Uses Tauri's custom URI scheme with an explicit sector range, e.g. `cd-track://localhost/track/1?start=0&count=375` (on Windows and Android the scheme is served as `http://cd-track.localhost`, so the frontend gets the root URL from Tauri rather than hardcoding it). Each request is one blocking drive read, run on a single dedicated reader thread so reads never overlap.
 * **Drive Speed:** Set the drive to its maximum read speed. Playback needs 1x (150 KB/s) as a bare minimum, and reads must be faster than real time to build a lead.
 
 ### 3.2. The Web Frontend (The Presentation & Audio Routing Layer)
@@ -82,7 +82,7 @@ Because CD tracks are split precisely on sample boundaries and every chunk is pl
 * Create the custom Tauri protocol to serve a sector range as raw PCM (e.g. `cd-track://localhost/track/1?start=0&count=375`), read on a dedicated thread at max drive speed.
 
 ### Phase 2: Web Audio Engine
-*Started: queued gapless playback, stop and pause/resume work (`CDPlayer`, `WebAudioHandler`). Seek is not done (a seek restarts with `play(track, time)`), and `next()` is not gapless.*
+*Done for audio CDs: queued gapless playback, pause/resume, stop, seek, next and clear queue (`CDPlayer`, `WebAudioHandler`). Seek and next are instant inside buffered audio and restart outside it.*
 * Build the `CDPlayer` class (`CDPlayer.svelte.ts`, Svelte 5 runes) and `WebAudioHandler`, and initialize the `AudioContext` at 44100 Hz.
 * Write the logic to fetch a chunk, convert Int16 to Float32 and fill an `AudioBuffer`.
 * Implement the sample-count scheduler with a ~30 s rolling lead, including seek, skip and pause/resume.
@@ -112,5 +112,5 @@ Because CD tracks are split precisely on sample boundaries and every chunk is pl
    * *Issue:* A full 80-minute disc is about 846 MB as PCM, and about 1.7 GB as Float32.
    * *Solution:* Never hold whole tracks. The rolling ~30 s lead keeps memory at about 10 MB regardless of track length.
 5. **Queue Edits After Buffering:**
-   * *Issue:* The next track is buffered up to ~30 s ahead, and scheduled Web Audio cannot be unscheduled. `clearQueue()` cannot remove a buffered track, and `next()` has to flush and restart, so it is not gapless.
-   * *Solution:* Accepted for now. See [cd-player.md](cd-player.md) for details and the possible fix (flush and restart the current track).
+   * *Issue:* The next track is buffered up to ~30 s ahead, so the queue, skips and seeks have to work on audio that is already scheduled.
+   * *Solution:* `WebAudioHandler` keeps each scheduled segment's buffer until it ends. `dropAfter()` stops audio that hasn't started (for `clearQueue()`), and `skipTo()` schedules buffered audio again to play now (for `next()` and `seek()`). Anything not yet buffered restarts and waits for the first chunk. See [cd-player.md](cd-player.md).

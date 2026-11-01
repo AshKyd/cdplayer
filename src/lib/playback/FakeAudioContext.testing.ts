@@ -2,13 +2,16 @@
 export class FakeSource {
   buffer: { length: number } | null = null;
   startedAt: number | null = null;
+  /** Seconds into the buffer that playback starts from. */
+  offset = 0;
   stopped = false;
   onended: (() => void) | null = null;
 
   connect() {}
   disconnect() {}
-  start(when: number) {
+  start(when: number, offset = 0) {
     this.startedAt = when;
+    this.offset = offset;
   }
   stop() {
     this.stopped = true;

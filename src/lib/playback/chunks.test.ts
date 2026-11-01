@@ -58,7 +58,10 @@ describe("currentSpanIndex", () => {
 });
 
 describe("chunkUrl", () => {
-  it("builds the cd-track URL", () => {
-    expect(chunkUrl(2, 75, 375)).toBe("cd-track://localhost/track/2?start=75&count=375");
+  it("builds the cd-track URL on the platform's base", () => {
+    expect(chunkUrl("cd-track://localhost/", 2, 75, 375)).toBe("cd-track://localhost/track/2?start=75&count=375");
+    expect(chunkUrl("http://cd-track.localhost/", 2, 75, 375)).toBe(
+      "http://cd-track.localhost/track/2?start=75&count=375",
+    );
   });
 });

@@ -26,5 +26,6 @@ export interface TrackSpan {
 export const currentSpanIndex = (spans: TrackSpan[], timelineSeconds: number) =>
   Math.max(0, spans.findLastIndex(({ startSeconds }) => startSeconds <= timelineSeconds));
 
-export const chunkUrl = (trackNumber: number, startSector: number, sectorCount: number) =>
-  `cd-track://localhost/track/${trackNumber}?start=${startSector}&count=${sectorCount}`;
+/** `baseUrl` is the protocol's root, from `cdTrackBaseUrl()`: it differs by platform. */
+export const chunkUrl = (baseUrl: string, trackNumber: number, startSector: number, sectorCount: number) =>
+  `${baseUrl}track/${trackNumber}?start=${startSector}&count=${sectorCount}`;

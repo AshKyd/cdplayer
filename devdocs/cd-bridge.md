@@ -59,7 +59,7 @@ Reads an audio CD in Rust and gives the frontend its track list and raw audio, i
 - Errors: 400 (bad URL), 404 (unknown or data track, or `start` past the end), 500 (read failed, see Error handling), 503 (no disc; the body is the reason).
 - Every response sends `Access-Control-Allow-Origin: *`. Successful ones also send `Access-Control-Expose-Headers` for `X-Unreadable-Sectors`.
 - Each request is handled on its own thread, so the UI is never blocked.
-- On Windows the scheme is served as `http://cd-track.localhost`. Not tested.
+- On Windows and Android Tauri serves the scheme as `http://cd-track.localhost/...`. The frontend does not hardcode either form: `cdTrackBaseUrl()` ([cd-player.md](cd-player.md)) asks Tauri for the platform prefix. The Rust handler sees the same path and query on every platform. Windows is not tested.
 
 ## Tests
 
