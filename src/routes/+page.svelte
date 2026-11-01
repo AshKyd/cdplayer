@@ -18,7 +18,10 @@
   import CoverViewer from "$lib/components/CoverViewer/CoverViewer.svelte";
   import { wipe } from "$lib/transitions/wipe";
   import { withViewTransition } from "$lib/transitions/withViewTransition";
+  import { AnimatedWindowHeight } from "$lib/window/AnimatedWindowHeight";
+  import { COLLAPSED_PAGE_HEIGHT, DEFAULT_EXPANDED_WINDOW_HEIGHT, DEFAULT_WINDOW_HEIGHT_OFFSET } from "$lib/window/windowHeights";
   import { setWindowFullscreen } from "$lib/window/setWindowFullscreen";
+  import { localStorageNumberStore, tauriWindowHeightControl } from "$lib/window/tauriWindowHeightControl";
   import { watchWindowFullscreen } from "$lib/window/watchWindowFullscreen";
 
   const player = new CDPlayer();
@@ -59,9 +62,13 @@
       return () => {};
     });
 
+    // The app opens collapsed, so the height the user gives the expanded window is kept for the next launch.
+    const stopWatchingUserHeight = windowHeight.watchUserHeight().catch(() => () => {});
+
     return () => {
       player.destroy();
       void stopWatchingFullscreen.then((stop) => stop());
+      void stopWatchingUserHeight.then((stop) => stop());
     };
   });
 
@@ -98,6 +105,46 @@
   const isReadingDisc = $derived(player.status === "loadingMetadata" || (player.status === "noDisc" && player.checkingDisc));
   /** There is nothing to play yet: no disc, or still reading it. The playback controls are disabled. */
   const isDiscUnavailable = $derived(player.status === "noDisc" || player.status === "loadingMetadata");
+
+  // With no track list the window shrinks to fit the header, and grows back to the user's height when tracks arrive.
+  const windowHeight = new AnimatedWindowHeight({
+    control: tauriWindowHeightControl(),
+    offsetStore: localStorageNumberStore("cdplayer.windowHeightOffset"),
+    initialOffset: DEFAULT_WINDOW_HEIGHT_OFFSET,
+    expandedHeightStore: localStorageNumberStore("cdplayer.expandedWindowHeight"),
+    defaultExpandedHeight: DEFAULT_EXPANDED_WINDOW_HEIGHT,
+  });
+  let mainElement: HTMLElement;
+
+  /** Height the page needs above the track list: everything but the track section, plus the page's bottom padding. */
+  let contentHeight = $state(0);
+
+  const measureContentHeight = (): number => {
+    const [lowestChrome] = [...mainElement.children].filter((child) => child.tagName !== "SECTION").reverse();
+    const bottomPadding = Number.parseFloat(getComputedStyle(mainElement).paddingBottom) || 0;
+    return Math.ceil((lowestChrome?.getBoundingClientRect().bottom ?? 0) + bottomPadding);
+  };
+
+  // The header's size changes after the first paint (text fitting, wrapping at narrow widths), so keep measuring it.
+  onMount(() => {
+    const observer = new ResizeObserver(() => (contentHeight = measureContentHeight()));
+    [...mainElement.children].filter((child) => child.tagName !== "SECTION").forEach((child) => observer.observe(child));
+    contentHeight = measureContentHeight();
+    return () => observer.disconnect();
+  });
+
+  $effect(() => {
+    // Fullscreen is entered and left asynchronously, so leave the size alone around it.
+    if (visualiserOnly) return;
+    // Known up front, so the first collapse doesn't wait for a measurement; the measured height only ever adds to it.
+    const collapsedHeight = Math.max(COLLAPSED_PAGE_HEIGHT, contentHeight);
+    // This is also the window's minimum, so it can't be dragged smaller than the header, collapsed or not.
+    windowHeight.setMinimumHeight(collapsedHeight);
+    const action = isDiscUnavailable ? windowHeight.collapseTo(collapsedHeight) : windowHeight.restore();
+    action.catch((error) => {
+      console.error(JSON.stringify({ message: "Could not resize the window", error: String(error) }));
+    });
+  });
   const albumPlaceholder = $derived(
     player.status === "loadingMetadata" ? "Reading…" : player.status === "noDisc" ? "No disc" : "Unknown disc",
   );
@@ -130,7 +177,7 @@
   />
 {/if}
 
-<main class:hidden={visualiserOnly}>
+<main class:hidden={visualiserOnly} bind:this={mainElement}>
   <header>
     <!-- Always shown, so the header keeps its size when there is no disc. A new disc wipes over the old one. -->
     <div class="album">

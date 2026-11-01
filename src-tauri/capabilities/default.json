@@ -8,6 +8,8 @@
     "core:webview:allow-create-webview-window",
     "core:window:allow-set-focus",
     "core:window:allow-set-fullscreen",
+    "core:window:allow-set-size",
+    "core:window:allow-set-min-size",
     "opener:default"
   ]
 }
