@@ -3,6 +3,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { NumberStore, WindowHeightControl } from "./AnimatedWindowHeight";
 
 const VIEWPORT_SETTLE_MS = 150;
+/** Narrower than this and the transport buttons, seek bar and album header squash each other. */
+const MINIMUM_WINDOW_WIDTH = 420;
 
 /** A number in `localStorage`; storage that is missing or blocked just means it is found again next launch. */
 export const localStorageNumberStore = (key: string): NumberStore => ({
@@ -36,8 +38,8 @@ export const tauriWindowHeightControl = (): WindowHeightControl => {
   return {
     getHeight: async () => (await getLogicalSize()).height,
     setHeight: async (height) => appWindow.setSize(new LogicalSize((await getLogicalSize()).width, height)),
-    // The width limit is 1 px, i.e. none: only the height is limited.
-    setMinimumHeight: async (height) => appWindow.setMinSize(new LogicalSize(1, height)),
+    // setMinSize replaces the whole limit, so the width has to be repeated here (keep in step with tauri.conf.json).
+    setMinimumHeight: async (height) => appWindow.setMinSize(new LogicalSize(MINIMUM_WINDOW_WIDTH, height)),
     // The webview's size lags the native window by a moment, so let it settle before reading.
     getViewportHeight: async () => {
       await new Promise((resolve) => setTimeout(resolve, VIEWPORT_SETTLE_MS));

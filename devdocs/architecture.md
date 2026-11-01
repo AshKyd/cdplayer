@@ -59,6 +59,9 @@ The frontend handles playback, gapless transitions, and visualizations, treating
 * **Audio scheduling:** The `WebAudioHandler` class ([web-audio-handler.md](web-audio-handler.md)) appends PCM segments to the playback buffer and owns the `AudioContext`.
 * **Source / engine split:** MP3 CDs will be supported later using the same architecture. A source (`CDPlayer` for audio CDs, an MP3 source later) reads or decodes audio into PCM and feeds it to `WebAudioHandler`. `WebAudioHandler` knows nothing about CDs or sectors, so the Web Audio code and the CD playback code must stay separate.
 
+### 3.3. Build tooling
+* **Docker build:** Linux and Windows bundles are built from macOS in a container ([docker-build.md](docker-build.md)).
+
 ## 4. Achieving True Gapless Playback
 
 The Web Audio API's hardware clock (`AudioContext.currentTime`) provides sample-accurate gapless transitions. The player treats the disc as one continuous stream of sectors. Track boundaries are not special: chunk N+1 is simply the next sectors after chunk N, whether or not a track changes.

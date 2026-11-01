@@ -1,0 +1,68 @@
+# Each architecture has its own image and volumes: node_modules and the Cargo target dir hold native binaries.
+x-build: &build
+  # Fewer parallel rustc jobs keeps peak memory down; a SIGKILL during the build means the VM ran out of RAM
+  environment:
+    CARGO_BUILD_JOBS: ${CARGO_BUILD_JOBS:-2}
+  volumes:
+    - .:/app
+    - ./build-out:/out
+
+services:
+  build-linux-arm64:
+    <<: *build
+    image: cdplayer-build:arm64
+    build: {context: docker/build, platforms: [linux/arm64]}
+    platform: linux/arm64
+    container_name: cdplayer-build-linux-arm64
+    command: linux
+    volumes:
+      - .:/app
+      - ./build-out:/out
+      - node_modules_arm64:/app/node_modules
+      - target_arm64:/cache/target
+      - cargo_registry_arm64:/home/node/.cargo/registry
+
+  build-linux-x64:
+    <<: *build
+    image: cdplayer-build:x64
+    build: {context: docker/build, platforms: [linux/amd64]}
+    platform: linux/amd64
+    container_name: cdplayer-build-linux-x64
+    command: linux
+    volumes:
+      - .:/app
+      - ./build-out:/out
+      - node_modules_x64:/app/node_modules
+      - target_x64:/cache/target
+      - cargo_registry_x64:/home/node/.cargo/registry
+
+  # Cross-compiles both Windows targets, so it runs on the native (arm64) image
+  build-windows:
+    <<: *build
+    image: cdplayer-build:arm64
+    build: {context: docker/build, platforms: [linux/arm64]}
+    platform: linux/arm64
+    container_name: cdplayer-build-windows
+    command: windows
+    environment:
+      CARGO_BUILD_JOBS: ${CARGO_BUILD_JOBS:-2}
+      WINDOWS_TARGETS: ${WINDOWS_TARGETS:-x86_64-pc-windows-msvc aarch64-pc-windows-msvc}
+    volumes:
+      - .:/app
+      - ./build-out:/out
+      - node_modules_windows:/app/node_modules
+      - target_windows:/cache/target
+      - xwin:/cache/xwin
+      - cargo_registry_windows:/home/node/.cargo/registry
+
+volumes:
+  node_modules_arm64:
+  node_modules_x64:
+  node_modules_windows:
+  target_arm64:
+  target_x64:
+  target_windows:
+  xwin:
+  cargo_registry_arm64:
+  cargo_registry_x64:
+  cargo_registry_windows:

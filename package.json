@@ -13,7 +13,12 @@
     "test": "vitest run",
     "storybook": "storybook dev -p 6006 --ci",
     "build-storybook": "storybook build",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:mac": "CI=true tauri build --target universal-apple-darwin",
+    "docker:linux-arm64": "docker compose -f docker-compose.build.yml run --rm --build build-linux-arm64",
+    "docker:linux-x64": "docker compose -f docker-compose.build.yml run --rm --build build-linux-x64",
+    "docker:windows": "docker compose -f docker-compose.build.yml run --rm --build build-windows",
+    "build:platforms": "npm run build:mac && npm run docker:linux-arm64 && npm run docker:linux-x64 && npm run docker:windows"
   },
   "license": "ISC",
   "dependencies": {
