@@ -1,19 +1,11 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { SECTORS_PER_SECOND, type Toc, type Track } from "$lib/disc/types";
+  import { CDPlayer } from "$lib/playback/CDPlayer.svelte";
 
-  interface Track {
-    number: number;
-    first_sector: number;
-    last_sector: number;
-    is_audio: boolean;
-  }
-
-  interface Toc {
-    tracks: Track[];
-    leadout_sector: number;
-  }
-
-  const SECTORS_PER_SECOND = 75;
+  const player = new CDPlayer();
+  /** Where `play()` starts, in seconds into the track. */
+  let startAtSeconds = $state(0);
 
   let toc = $state<Toc | null>(null);
   let tocError = $state("");
@@ -31,10 +23,11 @@
         tocError = String(error);
       });
 
-  const formatDuration = ({ first_sector, last_sector }: Track) => {
-    const totalSeconds = Math.round((last_sector - first_sector + 1) / SECTORS_PER_SECOND);
-    return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, "0")}`;
-  };
+  const formatClock = (totalSeconds: number) =>
+    `${Math.floor(totalSeconds / 60)}:${String(Math.floor(totalSeconds % 60)).padStart(2, "0")}`;
+
+  const formatDuration = ({ first_sector, last_sector }: Track) =>
+    formatClock(Math.round((last_sector - first_sector + 1) / SECTORS_PER_SECOND));
 
   /** Fetches the first 5 s of a track through the cd-track protocol and reports size and read time. */
   const testChunk = async ({ number }: Track) => {
@@ -61,6 +54,27 @@
   <h1>cdplayer</h1>
   <button onclick={loadToc}>Reload disc</button>
 
+  <section class="transport">
+    <button onclick={() => player.togglePause()} disabled={player.status !== "playing" && player.status !== "paused"}>
+      {player.status === "paused" ? "Play" : "Pause"}
+    </button>
+    <button onclick={() => player.stop()} disabled={player.status === "idle"}>Stop</button>
+    <label>
+      Start at (s)
+      <input type="number" min="0" step="1" bind:value={startAtSeconds} />
+    </label>
+    <span>
+      {#if player.status === "idle"}
+        Stopped
+      {:else}
+        Track {player.trackNumber} · {player.status} · {formatClock(player.positionSeconds)}
+      {/if}
+    </span>
+  </section>
+  {#if player.error}
+    <p class="error">{player.error}</p>
+  {/if}
+
   {#if tocError}
     <p class="error">{tocError}</p>
   {:else if toc}
@@ -69,6 +83,7 @@
         <li>
           <span>Track {track.number} · {formatDuration(track)}{track.is_audio ? "" : " (data)"}</span>
           {#if track.is_audio}
+            <button onclick={() => player.play(track, startAtSeconds || 0)}>Play</button>
             <button onclick={() => testChunk(track)}>Test read</button>
           {/if}
           <small>{chunkResults[track.number] ?? ""}</small>
@@ -84,6 +99,13 @@
   main {
     font-family: system-ui, sans-serif;
     padding: 1.5rem;
+  }
+
+  .transport {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    margin-block: 1rem;
   }
 
   li {

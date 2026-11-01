@@ -44,7 +44,9 @@ The frontend handles playback, gapless transitions, and visualizations, treating
 * **AudioContext:** The central hub for all audio routing and timing.
 * **Buffer Management:** Holds a rolling lead of about 30 s of decoded `AudioBuffer` chunks ahead of the playhead, regardless of track length (about 10 MB as Float32). Played chunks are dropped. Memory use is constant; it does not grow with track length.
 * **AnalyserNode:** Intercepts the audio graph to provide real-time frequency (FFT) and waveform data to the visualizer.
-* **UI & Visualizer:** Svelte 5 (runes). The playback engine is a `PlaybackManager` class in `src/lib/playback/PlaybackManager.svelte.ts`, exposing `$state` for the track, position and play/pause status. The UI components read that state. The visualizer is a `<canvas>` component driven by `requestAnimationFrame`.
+* **UI & Visualizer:** Svelte 5 (runes). Playback state lives in the `CDPlayer` class ([cd-player.md](cd-player.md), `src/lib/playback/CDPlayer.svelte.ts`), exposing `$state` for the track, position and status. The UI components read that state. The visualizer is a `<canvas>` component driven by `requestAnimationFrame`.
+* **Audio scheduling:** The `WebAudioHandler` class ([web-audio-handler.md](web-audio-handler.md)) appends PCM segments to the playback buffer and owns the `AudioContext`.
+* **Source / engine split:** MP3 CDs will be supported later using the same architecture. A source (`CDPlayer` for audio CDs, an MP3 source later) reads or decodes audio into PCM and feeds it to `WebAudioHandler`. `WebAudioHandler` knows nothing about CDs or sectors, so the Web Audio code and the CD playback code must stay separate.
 
 ## 4. Achieving True Gapless Playback
 
@@ -77,7 +79,8 @@ Because CD tracks are split precisely on sample boundaries and every chunk is pl
 * Create the custom Tauri protocol to serve a sector range as raw PCM (e.g. `cd-track://localhost/track/1?start=0&count=375`), read on a dedicated thread at max drive speed.
 
 ### Phase 2: Web Audio Engine
-* Build a `PlaybackManager` class (`PlaybackManager.svelte.ts`, Svelte 5 runes) and initialize the `AudioContext` at 44100 Hz.
+*Started: single-track play, stop and pause/resume work (`CDPlayer`, `WebAudioHandler`). Next-track lead-in, gapless across tracks and seek are not done.*
+* Build the `CDPlayer` class (`CDPlayer.svelte.ts`, Svelte 5 runes) and `WebAudioHandler`, and initialize the `AudioContext` at 44100 Hz.
 * Write the logic to fetch a chunk, convert Int16 to Float32 and fill an `AudioBuffer`.
 * Implement the sample-count scheduler with a ~30 s rolling lead, including seek, skip and pause/resume.
 
