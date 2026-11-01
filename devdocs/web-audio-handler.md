@@ -21,6 +21,7 @@ Schedules PCM segments back to back on the Web Audio clock. It knows nothing abo
 - Times for `dropAfter`/`skipTo` are on the timeline: the same clock as `playedSeconds`.
 - `suspend()` / `resume()`: pause and resume the `AudioContext`. Scheduled sources are kept. All sources play through one `GainNode`. With a fade, `suspend()` ramps the gain to 0, waits, then suspends (only if audio is playing; skipped if `resume()` or `stop()` came during the fade). `resume()` ramps the gain from 0 to 1.
 - `stop()`: stops and drops all sources, clears a requested pause and resets the clock.
+- `readWaveform(target)`: fills `target` with the latest output samples (bytes, 128 = silence) from an `AnalyserNode` placed after the gain (`WAVEFORM_SAMPLES` = 2048). Returns `false` before the first segment. Frozen while suspended.
 - `onEnded`: callback set by the owner. Called when no scheduled source is left.
 - `onInterruption(interrupted)`: callback set by the owner. `true` when the system stops the audio without being asked, `false` when it runs again.
 

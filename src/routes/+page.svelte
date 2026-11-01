@@ -7,6 +7,7 @@
   import TrackTable from "$lib/components/TrackTable/TrackTable.svelte";
   import { toTrackRows } from "$lib/components/TrackTable/trackRows";
   import TransportControls from "$lib/components/TransportControls/TransportControls.svelte";
+  import WaveformVisualiser from "$lib/components/WaveformVisualiser/WaveformVisualiser.svelte";
   import { CDPlayer } from "$lib/playback/CDPlayer.svelte";
   import { isDiscReady, isPlaybackActive } from "$lib/playback/playerMachine";
   import { openSettingsWindow } from "$lib/settings/openSettingsWindow";
@@ -35,6 +36,8 @@
 </script>
 
 <NowPlaying {player} />
+
+<WaveformVisualiser readWaveform={(target) => player.readWaveform(target)} playing={isSounding} />
 
 <main>
   <header>
@@ -98,6 +101,9 @@
 
 <style>
   main {
+    /* Above the background visualiser. */
+    position: relative;
+    z-index: 1;
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
@@ -115,6 +121,10 @@
   section {
     flex: 1;
     min-height: 0;
+    /* Frosted glass: blurs the waveform behind the table, with a light tint so the text stays readable. */
+    background: color-mix(in srgb, var(--akui-bg) 55%, transparent);
+    backdrop-filter: blur(12px);
+    border-radius: var(--akui-radius-m);
   }
 
   .message {

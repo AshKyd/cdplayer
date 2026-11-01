@@ -44,6 +44,16 @@ export class FakeGain {
   disconnect() {}
 }
 
+/** A stand-in for `AnalyserNode` that reports silence. */
+export class FakeAnalyser {
+  fftSize = 2048;
+  connect() {}
+  disconnect() {}
+  getByteTimeDomainData(target: Uint8Array) {
+    target.fill(128);
+  }
+}
+
 /**
  * A stand-in for `AudioContext` with a clock and state the test controls, so the handler and player can
  * be exercised without audio hardware. Cast to `AudioContext` where the code under test expects one.
@@ -94,6 +104,10 @@ export class FakeAudioContext {
     const gain = new FakeGain();
     this.gains.push(gain);
     return gain;
+  }
+
+  createAnalyser() {
+    return new FakeAnalyser();
   }
 
   createBufferSource() {

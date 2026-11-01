@@ -9,6 +9,7 @@ The player window, built with [svelte-akui](https://github.com/ashkyd/svelte-aku
 - `src/lib/components/NowPlaying/`: renderless; feeds the OS media controls ([now-playing.md](now-playing.md)).
 - The top bar has a gear button that opens the settings window (`src/routes/settings/+page.svelte`; see [settings.md](settings.md)).
 - `src/lib/components/TrackTable/`: `TrackTable.svelte` (the track list) and `trackRows.ts` (tracks and names to rows).
+- `src/lib/components/WaveformVisualiser/`: `WaveformVisualiser.svelte` (canvas, redrawn each animation frame from `player.readWaveform()`) and `waveformPoints.ts` (bytes to canvas points).
 - `src/lib/components/AlbumHeader/AlbumHeader.svelte`: the cover, album, artist and year.
 - `src/lib/components/TransportControls/TransportControls.svelte`: previous, play/pause and next buttons.
 - `src/lib/components/SeekBar/SeekBar.svelte`: the progress bar and times.
@@ -25,6 +26,7 @@ When the disc is ejected the status becomes `noDisc`, so the table goes away and
 ## Behaviour
 
 - Layout: a top bar (transport buttons and seek bar), then any notices, then the album header and the track table filling the rest of the window.
+- `WaveformVisualiser` is a proof of concept, drawn as a fixed full-window backdrop behind `main` (`z-index` 0 vs 1, no pointer events). The track table's wrapper (`section`) is frosted glass: a 55% `--akui-bg` tint and a 12px `backdrop-filter` blur, so the waveform shows through softly. It is an oscilloscope line of the last ~46 ms of output, drawn in the accent colour. Each frame erases only 15% of the last (`DECAY_ERASE_ALPHA`), so earlier lines fade out over about half a second. While paused or stopped (`playing` false) nothing new is drawn, so the last lines fade to an empty canvas.
 - `TrackTable` uses akui `DetailsTable`. Columns: `#`, title, an artist column only on compilations (tracks whose artist differs from the album's), and time. `autoFit` sizes `#` and time to their content; title and artist share the spare width 2 : 1 (`fitFlex`). The playing/paused icon sits in the `#` cell, in a reserved slot, and fades in. Rows are always in disc order (no sorting), because "play from here" means "the tracks after this one on the disc".
   - The current track is bold and has a speaker icon (a pause icon when paused).
   - Data tracks are dimmed and cannot be played.

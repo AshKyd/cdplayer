@@ -6,6 +6,9 @@ const SAMPLE_RATE = 44100;
 /** Small start delay so the first segment is scheduled in the future, not at a time already passed. */
 const START_DELAY_SECONDS = 0.05;
 
+/** Samples in one waveform snapshot (the analyser's FFT size). About 46 ms of audio at 44.1 kHz. */
+export const WAVEFORM_SAMPLES = 2048;
+
 interface Options {
   /** Makes the `AudioContext`. Tests pass a fake. */
   createContext?: () => AudioContext;
@@ -53,6 +56,8 @@ export class WebAudioHandler {
   #context: AudioContext | null = null;
   /** Every segment plays through this, so a pause or resume can fade the whole output. */
   #gain: GainNode | null = null;
+  /** Taps the output for `readWaveform()`. */
+  #analyser: AnalyserNode | null = null;
   /** Bumped by `suspend()`, `resume()` and `stop()`, so a fade-out that was overtaken doesn't suspend the context. */
   #fadeToken = 0;
   #segments: Segment[] = [];
@@ -78,7 +83,11 @@ export class WebAudioHandler {
     const context = this.#createContext();
     this.#context = context;
     this.#gain = context.createGain();
-    this.#gain.connect(context.destination);
+    // The analyser passes audio through untouched; it only lets the UI read the waveform (post-fade).
+    this.#analyser = context.createAnalyser();
+    this.#analyser.fftSize = WAVEFORM_SAMPLES;
+    this.#gain.connect(this.#analyser);
+    this.#analyser.connect(context.destination);
     context.addEventListener("statechange", () => this.#handleStateChange(context));
     // Honour a pause requested before the first segment arrived; otherwise make sure it is running,
     // since a context made outside a user gesture can start suspended.
@@ -133,6 +142,16 @@ export class WebAudioHandler {
     const heardTime = this.#context.currentTime - this.latencySeconds;
     const played = heardTime - this.#baseTime;
     return this.#playedBeforeBase + Math.min(Math.max(0, played), this.#scheduledFrames / SAMPLE_RATE);
+  }
+
+  /**
+   * Fills `target` (up to `WAVEFORM_SAMPLES` long) with the latest output samples as unsigned bytes,
+   * where 128 is silence. Returns `false` before any audio has been scheduled.
+   */
+  readWaveform(target: Uint8Array<ArrayBuffer>): boolean {
+    if (!this.#analyser) return false;
+    this.#analyser.getByteTimeDomainData(target);
+    return true;
   }
 
   /** Queues headerless 16-bit/44.1 kHz stereo PCM directly after whatever is already scheduled. */

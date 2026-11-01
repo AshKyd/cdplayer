@@ -198,6 +198,11 @@ export class CDPlayer {
     return artist === this.metadata?.artist ? "" : artist;
   }
 
+  /** Fills `target` with the latest output samples (128 = silence) for a visualiser. `false` if there is no audio yet. */
+  readWaveform(target: Uint8Array<ArrayBuffer>): boolean {
+    return this.#handler.readWaveform(target);
+  }
+
   /** Stops whatever is playing, then plays `track` alone from `timeSeconds`. */
   play(track: Track, timeSeconds = 0): Promise<void> {
     return this.playQueue([track], timeSeconds);
