@@ -106,9 +106,9 @@ export class CDPlayer {
     return this.#watcher.error;
   }
 
-  /** True while the drive is being asked what disc it holds. */
-  get checkingDisc(): boolean {
-    return this.#watcher.checking;
+  /** True while the drive is taking noticeably long to say what disc it holds (a disc spinning up). */
+  get readingDisc(): boolean {
+    return this.#watcher.reading;
   }
 
   #handler: WebAudioHandler;

@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { Icon, Loader } from "svelte-akui";
+  import { Icon } from "svelte-akui";
   import { fade } from "svelte/transition";
+  import DiscSpinner from "$lib/components/DiscSpinner/DiscSpinner.svelte";
   import CopyfitText from "$lib/components/CopyfitText/CopyfitText.svelte";
   import type { DiscMetadata } from "$lib/metadata/types";
 
@@ -60,7 +61,7 @@
       <img transition:fade src={metadata.coverUrl} alt="Cover of {metadata.album}" />
     {:else}
       <div class="icon" transition:fade>
-        {#if busy}<Loader />{:else}<Icon name="disc" size="2rem" />{/if}
+        {#if busy}<DiscSpinner />{:else}<Icon name="disc" size="2rem" />{/if}
       </div>
     {/if}
   </button>

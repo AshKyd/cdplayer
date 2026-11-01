@@ -60,6 +60,12 @@
   </UIRoot>
 </Story>
 
+<Story name="Reading disc" asChild>
+  <UIRoot>
+    <div class="album"><AlbumHeader metadata={null} message="Reading disc…" busy /></div>
+  </UIRoot>
+</Story>
+
 <style>
   .grid {
     display: flex;

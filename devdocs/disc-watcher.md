@@ -10,12 +10,13 @@ Finds out which disc is in the drive by asking for its TOC at an interval, and r
 
 ## API
 
-- `new DiscWatcher({ loadToc, isBusy, intervalMs, onChange })`. All options are optional.
+- `new DiscWatcher({ loadToc, isBusy, intervalMs, readingDelayMs, onChange })`. All options are optional.
   - `loadToc`: reads the TOC. Defaults to `invoke("get_toc")`. Tests pass a fake.
   - `isBusy`: true while the drive is in use. `CDPlayer` passes whether audio is active (loading, playing, buffering or paused).
   - `intervalMs`: time between checks. Default 3000.
+  - `readingDelayMs`: how long a check must run before `reading` turns on. Default 400.
   - `onChange(toc | null)`: called when the disc changes. `CDPlayer` tears down playback and sends `discInserted` or `discRemoved` ([player-lifecycle.md](player-lifecycle.md)).
-- State: `toc`, `error` (why there is no disc, or empty), `checking`.
+- State: `toc`, `error` (why there is no disc, or empty), `checking` (a check is running), `reading` (a check has run longer than `readingDelayMs`). An empty drive answers fast, so `reading` stays false for it; a disc spinning up is slow enough to set it. The UI uses `reading` so the spinner does not flash on every poll.
 - `start()`: checks now, then every `intervalMs`. `stop()`.
 - `checkNow()`: one check. Does nothing while busy or while another check is running.
 
@@ -35,5 +36,5 @@ Finds out which disc is in the drive by asking for its TOC at an interval, and r
 
 ## Tests
 
-- `npm test` covers the fingerprint and the watcher with a fake drive and fake timers: first disc, repeated reads, swap, eject, return, busy, overlapping checks and `stop()`.
+- `npm test` covers the fingerprint and the watcher with a fake drive and fake timers: first disc, repeated reads, swap, eject, return, busy, overlapping checks, `reading` (slow and quick checks) and `stop()`.
 - Polling against a real drive is tested by hand.

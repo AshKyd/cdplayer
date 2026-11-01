@@ -102,7 +102,7 @@
     },
   );
   /** True while the disc is being read or looked up. */
-  const isReadingDisc = $derived(player.status === "loadingMetadata" || (player.status === "noDisc" && player.checkingDisc));
+  const isReadingDisc = $derived(player.status === "loadingMetadata" || (player.status === "noDisc" && player.readingDisc));
   /** There is nothing to play yet: no disc, or still reading it. The playback controls are disabled. */
   const isDiscUnavailable = $derived(player.status === "noDisc" || player.status === "loadingMetadata");
 
@@ -146,7 +146,13 @@
     });
   });
   const albumPlaceholder = $derived(
-    player.status === "loadingMetadata" ? "Reading…" : player.status === "noDisc" ? "No disc" : "Unknown disc",
+    player.status === "loadingMetadata"
+      ? "Looking up album…"
+      : player.status === "noDisc"
+        ? isReadingDisc
+          ? "Reading disc…"
+          : "No disc"
+        : "Unknown disc",
   );
 </script>
 

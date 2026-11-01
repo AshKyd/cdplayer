@@ -101,6 +101,32 @@ describe("DiscWatcher", () => {
     expect(watcher.checking).toBe(false);
   });
 
+  it("only reports reading once a check has taken longer than the delay", async () => {
+    let finish: (toc: Toc) => void = () => {};
+    const loadToc = () => new Promise<Toc>((resolve) => (finish = resolve));
+    const watcher = new DiscWatcher({ loadToc, readingDelayMs: 400 });
+
+    const check = watcher.checkNow();
+    await vi.advanceTimersByTimeAsync(399);
+    expect(watcher.reading).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(watcher.reading).toBe(true);
+
+    finish(discA);
+    await check;
+    expect(watcher.reading).toBe(false);
+  });
+
+  it("never reports reading for a quick check", async () => {
+    const watcher = new DiscWatcher({ loadToc: fakeDrive(null).loadToc, readingDelayMs: 400 });
+
+    await watcher.checkNow();
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(watcher.reading).toBe(false);
+  });
+
   it("stops polling after stop()", async () => {
     const drive = fakeDrive(discA);
     const watcher = new DiscWatcher({ loadToc: drive.loadToc, intervalMs: 1000 });

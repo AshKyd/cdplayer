@@ -9,6 +9,8 @@ interface Options {
   isBusy?: () => boolean;
   /** Time between automatic checks. */
   intervalMs?: number;
+  /** How long a check must run before `reading` turns on. */
+  readingDelayMs?: number;
   /** Called when the disc changes, including the first check and a disc being removed (`null`). */
   onChange?: (toc: Toc | null) => void;
 }
@@ -22,10 +24,18 @@ export class DiscWatcher {
   /** Why there is no disc (empty drive, no drive), or empty when there is one. */
   error = $state("");
   checking = $state(false);
+  /**
+   * True once a check has taken longer than `readingDelayMs`. An empty drive answers almost at once, so
+   * this stays false for it and the UI doesn't flash a spinner on every poll; a disc spinning up is slow
+   * enough to show it.
+   */
+  reading = $state(false);
 
   #loadToc: () => Promise<Toc>;
   #isBusy: () => boolean;
   #intervalMs: number;
+  #readingDelayMs: number;
+  #readingTimer: ReturnType<typeof setTimeout> | undefined;
   #onChange: (toc: Toc | null) => void;
   #timer: ReturnType<typeof setInterval> | undefined;
   /** Fingerprint of the last result; `undefined` until the first check finishes. */
@@ -35,11 +45,13 @@ export class DiscWatcher {
     loadToc = () => invoke<Toc>("get_toc"),
     isBusy = () => false,
     intervalMs = 3000,
+    readingDelayMs = 400,
     onChange = () => {},
   }: Options = {}) {
     this.#loadToc = loadToc;
     this.#isBusy = isBusy;
     this.#intervalMs = intervalMs;
+    this.#readingDelayMs = readingDelayMs;
     this.#onChange = onChange;
   }
 
@@ -53,6 +65,7 @@ export class DiscWatcher {
   stop(): void {
     clearInterval(this.#timer);
     this.#timer = undefined;
+    clearTimeout(this.#readingTimer);
   }
 
   /**
@@ -62,12 +75,15 @@ export class DiscWatcher {
   async checkNow(): Promise<void> {
     if (this.checking || this.#isBusy()) return;
     this.checking = true;
+    this.#readingTimer = setTimeout(() => (this.reading = true), this.#readingDelayMs);
 
     const result = await this.#loadToc().then(
       (toc) => ({ toc, error: "" }),
       (reason) => ({ toc: null, error: String(reason) }),
     );
+    clearTimeout(this.#readingTimer);
     this.checking = false;
+    this.reading = false;
     this.error = result.error;
 
     const fingerprint = tocFingerprint(result.toc);

@@ -1,6 +1,6 @@
 # UI
 
-The player window, built with [svelte-akui](https://github.com/ashkyd/svelte-akui) (`DetailsTable`, `Button`, `Icon`, `InfoBox`, `Loader`, `UIRoot`). All logic is in `CDPlayer` ([cd-player.md](cd-player.md)); the page and components only show its state and send it commands.
+The player window, built with [svelte-akui](https://github.com/ashkyd/svelte-akui) (`DetailsTable`, `Button`, `Icon`, `InfoBox`, `UIRoot`). All logic is in `CDPlayer` ([cd-player.md](cd-player.md)); the page and components only show its state and send it commands.
 
 ## Files
 
@@ -18,7 +18,7 @@ The player window, built with [svelte-akui](https://github.com/ashkyd/svelte-aku
 - `src/lib/window/watchWindowFullscreen.ts`: `watchWindowFullscreen(onChange)` reports native fullscreen changes (via `onResized` + `isFullscreen()`). The page leaves visualiser-only mode when the window leaves fullscreen by any route (green button, Ctrl+Cmd+F, another Space), and also when entering fullscreen fails.
 - `src/lib/components/Visualiser/Visualiser.svelte`: the canvas backdrop. Runs the visualiser chosen in settings in a worker; see [visualisers.md](visualisers.md).
 - `src/lib/components/CoverViewer/CoverViewer.svelte`: the cover full size with 32px padding, a 5px radius and a drop shadow, over a blurred copy of itself. An icon-only back button (top left) or Escape closes it. The page opens and closes it through `withViewTransition()` (`src/lib/transitions/withViewTransition.ts`), and the header's cover and the viewer's share `view-transition-name: album-cover` so one morphs into the other. Without view transition support it just appears.
-- `src/lib/components/AlbumHeader/AlbumHeader.svelte` (the cover is a button that opens the viewer; the cover fades in once loaded): the cover, album, artist and year. Without metadata it shows `message` (with a loader when `busy`) in the album's place, so the header keeps its height.
+- `src/lib/components/AlbumHeader/AlbumHeader.svelte` (the cover is a button that opens the viewer; the cover fades in once loaded): the cover, album, artist and year. Without metadata it shows `message` (with a `DiscSpinner` when `busy`) in the album's place, so the header keeps its height.
 - `src/lib/components/CopyfitText/`: `CopyfitText.svelte` (text that wraps to `maxLines` lines, then scales down to fit its box) and `copyfitScale.ts` (picks the scale). Used for the album title and the artist line.
 - `src/lib/components/TransportControls/TransportControls.svelte`: previous, play/pause and next buttons.
 - `src/lib/components/SeekBar/SeekBar.svelte`: the progress bar and times.
@@ -26,8 +26,8 @@ The player window, built with [svelte-akui](https://github.com/ashkyd/svelte-aku
 
 ## What shows for each status
 
-- `noDisc`: the album header shows "No disc" (with a loader while the drive is being asked). The transport and seek bar are disabled. There is no table.
-- `loadingMetadata`: the album header shows a loader and "Reading…". The controls are disabled and there is no table: tracks are not shown before their names are known.
+- `noDisc`: the album header shows "No disc". If the drive is slow to report its TOC (`readingDisc`), it shows a spinning disc and "Reading disc…" instead. The transport and seek bar are disabled. There is no table.
+- `loadingMetadata`: the album header shows a spinning disc and "Looking up album…". The controls are disabled and there is no table: tracks are not shown before their names are known.
 - The album header is keyed on the disc ID and changes with the `wipe` transition (`src/lib/transitions/wipe.ts`, a left-to-right `clip-path` reveal). The old and new headers share one grid cell so they overlap while wiping.
 - A disc that MusicBrainz doesn't know shows "Unknown disc" in the album header.
 - `ready` and later: the album header (if MusicBrainz knew the disc) and the track table. If the lookup failed, the tracks are "Track 1", "Track 2", ... and a line says why names are unavailable.

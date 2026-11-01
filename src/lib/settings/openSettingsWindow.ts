@@ -12,6 +12,8 @@ export async function openSettingsWindow(): Promise<void> {
   new WebviewWindow(SETTINGS_WINDOW_LABEL, {
     url: "/settings",
     title: "Settings",
+    // Hidden until the settings page has rendered and shows itself, so it never flashes blank.
+    visible: false,
     width: 640,
     height: 520,
     minWidth: 400,

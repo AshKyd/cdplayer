@@ -68,25 +68,39 @@ impl DiscHandle {
     }
 }
 
-/// Starts the reader thread and reads the TOC once. Having no disc is not a failure: the handle still
+/// Starts the reader thread, which reads the TOC once. Having no disc is not a failure: the handle still
 /// works, and `reload()` can find a disc later.
+///
+/// Doesn't wait for that first read. A drive spinning up a disc can take many seconds, and waiting here
+/// would hold up app setup, so the window wouldn't open (and couldn't show "Reading disc…") until it
+/// finished. Requests queue behind the first read, so the frontend's first `get_toc` simply waits for it.
 pub fn spawn_reader() -> Result<DiscHandle, String> {
-    spawn_reader_with(
+    start_reader(
         || {
             let disc = Disc::open_default()?;
             let toc = disc.read_toc()?;
             Ok((disc, toc))
         },
         DEFAULT_IDLE_CLOSE,
+        false,
     )
 }
 
 /// Like `spawn_reader`, but `open` supplies the sector source and TOC (it is called every time the drive
 /// is opened) and `idle_close` is how long the drive stays open after the last request. `open` runs on the
-/// reader thread, so the source itself doesn't need to be `Send`. Tests use it with a fake drive.
+/// reader thread, so the source itself doesn't need to be `Send`. Waits for the first read, so tests can
+/// check `current_toc()` straight away. Tests use it with a fake drive.
 pub fn spawn_reader_with<Source: SectorSource + 'static>(
+    open: impl FnMut() -> Result<(Source, Toc), String> + Send + 'static,
+    idle_close: Duration,
+) -> Result<DiscHandle, String> {
+    start_reader(open, idle_close, true)
+}
+
+fn start_reader<Source: SectorSource + 'static>(
     mut open: impl FnMut() -> Result<(Source, Toc), String> + Send + 'static,
     idle_close: Duration,
+    wait_for_first_look: bool,
 ) -> Result<DiscHandle, String> {
     let (requests, request_receiver) = mpsc::channel::<Request>();
     let (ready_sender, ready_receiver) = mpsc::channel::<()>();
