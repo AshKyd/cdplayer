@@ -11,8 +11,20 @@
   import { CDPlayer } from "$lib/playback/CDPlayer.svelte";
   import { isDiscReady, isPlaybackActive } from "$lib/playback/playerMachine";
   import { openSettingsWindow } from "$lib/settings/openSettingsWindow";
+  import { settings } from "$lib/settings/settings.svelte";
+  import { setWindowFullscreen } from "$lib/window/setWindowFullscreen";
 
   const player = new CDPlayer();
+
+  /** Fullscreen with only the visualiser showing; Escape leaves it. */
+  let visualiserOnly = $state(false);
+
+  function setVisualiserOnly(enabled: boolean) {
+    visualiserOnly = enabled;
+    setWindowFullscreen(enabled).catch((error) => {
+      console.error(JSON.stringify({ message: "Could not change fullscreen", error: String(error) }));
+    });
+  }
 
   onMount(() => {
     player.start();
@@ -37,9 +49,13 @@
 
 <NowPlaying {player} />
 
-<WaveformVisualiser readWaveform={(target) => player.readWaveform(target)} playing={isSounding} />
+<svelte:window onkeydown={(event) => visualiserOnly && event.key === "Escape" && setVisualiserOnly(false)} />
 
-<main>
+{#if settings.visualiserEnabled || visualiserOnly}
+  <WaveformVisualiser readWaveform={(target) => player.readWaveform(target)} playing={isSounding} />
+{/if}
+
+<main class:hidden={visualiserOnly}>
   <header>
     {#if player.metadata}
       <div class="album"><AlbumHeader metadata={player.metadata} /></div>
@@ -60,13 +76,22 @@
         disabled={!isActive}
         onseek={(seconds) => void player.seek(seconds)}
       />
-      <Button
-        variant="ghost"
-        icon="gear"
-        iconPosition="only"
-        aria-label="Settings"
-        onclick={() => void openSettingsWindow()}
-      />
+      <div class="window-buttons">
+        <Button
+          variant="ghost"
+          icon="gear"
+          iconPosition="only"
+          aria-label="Settings"
+          onclick={() => void openSettingsWindow()}
+        />
+        <Button
+          variant="ghost"
+          icon="fullscreen"
+          iconPosition="only"
+          aria-label="Fullscreen visualiser"
+          onclick={() => setVisualiserOnly(true)}
+        />
+      </div>
     </div>
   </header>
 
@@ -114,6 +139,11 @@
     padding: 0.75rem 1rem 1rem;
   }
 
+  /* Visualiser-only mode: hide all page chrome, keeping the player mounted so playback continues. */
+  main.hidden {
+    display: none;
+  }
+
   header {
     display: flex;
     flex-wrap: wrap;
@@ -135,6 +165,12 @@
     gap: 1.25rem;
     align-items: center;
     min-width: 0;
+  }
+
+  .window-buttons {
+    display: flex;
+    flex: none;
+    gap: 0.125rem;
   }
 
   /* Narrow: the controls take the first line and the album drops below them. */

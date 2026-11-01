@@ -9,7 +9,8 @@ The player window, built with [svelte-akui](https://github.com/ashkyd/svelte-aku
 - `src/lib/components/NowPlaying/`: renderless; feeds the OS media controls ([now-playing.md](now-playing.md)).
 - The top bar has a gear button that opens the settings window (`src/routes/settings/+page.svelte`; see [settings.md](settings.md)).
 - `src/lib/components/TrackTable/`: `TrackTable.svelte` (the track list) and `trackRows.ts` (tracks and names to rows).
-- `src/lib/components/WaveformVisualiser/`: `WaveformVisualiser.svelte` (canvas, redrawn each animation frame from `player.readWaveform()`) and `waveformPoints.ts` (bytes to canvas points).
+- `src/lib/window/setWindowFullscreen.ts`: wraps the Tauri window `setFullscreen` call. The fullscreen button in `src/routes/+page.svelte` hides `<main>` and shows only the visualiser (even when disabled in settings); Escape exits. Needs the `core:window:allow-set-fullscreen` capability.
+- `src/lib/components/WaveformVisualiser/`: `WaveformVisualiser.svelte` (each animation frame reads `player.readWaveform()` on the main thread, as the analyser lives there, and posts the samples to the worker), `waveform.worker.ts` (owns the `OffscreenCanvas`; fades the trail and draws the line), `waveformWorkerMessages.ts` (message types) and `waveformPoints.ts` (bytes to canvas points).
 - `src/lib/components/AlbumHeader/AlbumHeader.svelte`: the cover, album, artist and year.
 - `src/lib/components/CopyfitText/`: `CopyfitText.svelte` (one line of text scaled down to fit its width) and `copyfitScale.ts` (the scale calculation). Used for the album title and the artist line.
 - `src/lib/components/TransportControls/TransportControls.svelte`: previous, play/pause and next buttons.

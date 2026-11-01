@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { WAVEFORM_SAMPLES } from "$lib/playback/WebAudioHandler";
-  import { waveformPoints } from "./waveformPoints";
+  import type { WaveformWorkerMessage } from "./waveformWorkerMessages";
 
   interface Props {
     /** Fills the array with the latest output samples (128 = silence); returns false when there is no audio yet. */
@@ -12,56 +12,63 @@
 
   let { readWaveform, playing }: Props = $props();
 
-  /** Share of the previous frame wiped each frame. Lower is a longer trail (0.15 is roughly half a second). */
-  const DECAY_ERASE_ALPHA = 0.15;
+  const TARGET_FPS = 30;
+  const FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
+  /** Display frames land a little early or late; without slack a 60 Hz screen can drop to 20 fps. */
+  const FRAME_TIMING_SLACK_MS = 2;
 
   let canvas: HTMLCanvasElement;
-  const samples = new Uint8Array(WAVEFORM_SAMPLES);
 
+  /**
+   * The AnalyserNode only exists on the main thread, so the page reads the samples each frame and hands them
+   * to a worker. The worker owns the canvas and does the erasing and drawing.
+   */
   onMount(() => {
-    const context = canvas.getContext("2d");
-    if (!context) return;
+    const worker = new Worker(new URL("./waveform.worker.ts", import.meta.url), { type: "module" });
+    const send = (message: WaveformWorkerMessage, transfer: Transferable[] = []) =>
+      worker.postMessage(message, transfer);
+
+    const offscreen = canvas.transferControlToOffscreen();
+    send({ type: "init", canvas: offscreen }, [offscreen]);
 
     // Draw in device pixels so the line stays sharp on retina screens.
     const resize = () => {
       const { clientWidth, clientHeight } = canvas;
-      canvas.width = clientWidth * devicePixelRatio;
-      canvas.height = clientHeight * devicePixelRatio;
+      send({
+        type: "resize",
+        width: clientWidth * devicePixelRatio,
+        height: clientHeight * devicePixelRatio,
+        pixelRatio: devicePixelRatio,
+      });
     };
     const observer = new ResizeObserver(resize);
     observer.observe(canvas);
     resize();
 
     let frameId = 0;
-    const draw = () => {
-      frameId = requestAnimationFrame(draw);
-      const { width, height } = canvas;
-
-      // Erase a fraction of the previous frame instead of all of it, so older lines linger and fade.
-      // destination-out keeps the canvas transparent, so it works on any theme background.
-      context.globalCompositeOperation = "destination-out";
-      context.fillStyle = `rgba(0, 0, 0, ${DECAY_ERASE_ALPHA})`;
-      context.fillRect(0, 0, width, height);
-      context.globalCompositeOperation = "source-over";
-
-      // Paused or stopped: the analyser is frozen on its last frame, so drawing it would hold the line
-      // in place. Draw nothing and let the erase above fade the trail out.
-      if (!playing || !readWaveform(samples)) return;
-
-      context.lineWidth = 2 * devicePixelRatio;
-      context.lineJoin = "round";
-      context.strokeStyle = getComputedStyle(canvas).getPropertyValue("--akui-bg-accent") || "currentColor";
-      context.beginPath();
-      waveformPoints(samples, width, height).forEach(([x, y], index) =>
-        index === 0 ? context.moveTo(x, y) : context.lineTo(x, y),
+    let lastFrameTime = 0;
+    const tick = (now: number) => {
+      frameId = requestAnimationFrame(tick);
+      // Skip display frames until the next 30 fps slot is due.
+      if (now - lastFrameTime < FRAME_INTERVAL_MS - FRAME_TIMING_SLACK_MS) return;
+      lastFrameTime = now;
+      const samples = new Uint8Array(WAVEFORM_SAMPLES);
+      const hasSamples = playing && readWaveform(samples);
+      send(
+        {
+          type: "frame",
+          samples: hasSamples ? samples : null,
+          colour: getComputedStyle(canvas).getPropertyValue("--akui-bg-accent"),
+        },
+        hasSamples ? [samples.buffer] : [],
       );
-      context.stroke();
     };
-    draw();
+    frameId = requestAnimationFrame(tick);
 
     return () => {
       cancelAnimationFrame(frameId);
       observer.disconnect();
+      worker.terminate();
     };
   });
 </script>
