@@ -10,8 +10,9 @@ The player window, built with [svelte-akui](https://github.com/ashkyd/svelte-aku
 - The top bar has a gear button that opens the settings window (`src/routes/settings/+page.svelte`; see [settings.md](settings.md)).
 - `src/lib/components/TrackTable/`: `TrackTable.svelte` (the track list) and `trackRows.ts` (tracks and names to rows).
 - `src/lib/window/setWindowFullscreen.ts`: wraps the Tauri window `setFullscreen` call. The fullscreen button in `src/routes/+page.svelte` hides `<main>` and shows only the visualiser (even when disabled in settings); Escape exits. Needs the `core:window:allow-set-fullscreen` capability.
-- `src/lib/components/WaveformVisualiser/`: `WaveformVisualiser.svelte` (each animation frame reads `player.readWaveform()` on the main thread, as the analyser lives there, and posts the samples to the worker), `waveform.worker.ts` (owns the `OffscreenCanvas`; fades the trail and draws the line), `waveformWorkerMessages.ts` (message types) and `waveformPoints.ts` (bytes to canvas points).
-- `src/lib/components/AlbumHeader/AlbumHeader.svelte`: the cover, album, artist and year.
+- `src/lib/components/Visualiser/Visualiser.svelte`: the canvas backdrop. Runs the visualiser chosen in settings in a worker; see [visualisers.md](visualisers.md).
+- `src/lib/components/CoverViewer/CoverViewer.svelte`: the cover full size with 32px padding, a 5px radius and a drop shadow, over a blurred copy of itself. An icon-only back button (top left) or Escape closes it. The page opens and closes it through `withViewTransition()` (`src/lib/transitions/withViewTransition.ts`), and the header's cover and the viewer's share `view-transition-name: album-cover` so one morphs into the other. Without view transition support it just appears.
+- `src/lib/components/AlbumHeader/AlbumHeader.svelte` (the cover is a button that opens the viewer; the cover fades in once loaded): the cover, album, artist and year. Without metadata it shows `message` (with a loader when `busy`) in the album's place, so the header keeps its height.
 - `src/lib/components/CopyfitText/`: `CopyfitText.svelte` (one line of text scaled down to fit its width) and `copyfitScale.ts` (the scale calculation). Used for the album title and the artist line.
 - `src/lib/components/TransportControls/TransportControls.svelte`: previous, play/pause and next buttons.
 - `src/lib/components/SeekBar/SeekBar.svelte`: the progress bar and times.
@@ -19,8 +20,10 @@ The player window, built with [svelte-akui](https://github.com/ashkyd/svelte-aku
 
 ## What shows for each status
 
-- `noDisc`: a message: "Reading disc…" while the drive is being asked, otherwise "No disc: {reason}" or "No disc in the drive". There is no table.
-- `loadingMetadata`: a loader and "Looking up the disc…". There is no table: tracks are not shown before their names are known.
+- `noDisc`: the album header shows "No disc" (with a loader while the drive is being asked). The transport and seek bar are disabled. There is no table.
+- `loadingMetadata`: the album header shows a loader and "Reading…". The controls are disabled and there is no table: tracks are not shown before their names are known.
+- The album header is keyed on the disc ID and changes with the `wipe` transition (`src/lib/transitions/wipe.ts`, a left-to-right `clip-path` reveal). The old and new headers share one grid cell so they overlap while wiping.
+- A disc that MusicBrainz doesn't know shows "Unknown disc" in the album header.
 - `ready` and later: the album header (if MusicBrainz knew the disc) and the track table. If the lookup failed, the tracks are "Track 1", "Track 2", ... and a line says why names are unavailable.
 
 When the disc is ejected the status becomes `noDisc`, so the table goes away and the player is stopped.
