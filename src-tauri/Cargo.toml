@@ -21,6 +21,8 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
+# Lets the frontend list a mounted disc's folders and read its playlists; see `list_optical_volumes`.
+tauri-plugin-fs = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 cd-da-reader = "1"

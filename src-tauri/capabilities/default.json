@@ -11,6 +11,9 @@
     "core:window:allow-set-fullscreen",
     "core:window:allow-set-size",
     "core:window:allow-set-min-size",
-    "opener:default"
+    "opener:default",
+    "fs:allow-read-dir",
+    "fs:allow-read-file",
+    "fs:allow-exists"
   ]
 }

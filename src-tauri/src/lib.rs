@@ -2,6 +2,7 @@ mod commands;
 mod disc;
 mod files;
 mod protocol;
+mod volumes;
 
 use commands::DiscState;
 use files::FileRegistry;
@@ -11,6 +12,8 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        // No static scope: `list_optical_volumes` opens up each mounted disc as it appears.
+        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             app.manage(DiscState(disc::reader::spawn_reader()?));
             app.manage(FileRegistry::default());
@@ -36,7 +39,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_toc,
             commands::open_audio_file,
-            commands::close_audio_file
+            commands::close_audio_file,
+            commands::list_optical_volumes
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
