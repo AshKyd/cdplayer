@@ -12,9 +12,9 @@ Plays audio files dropped onto the window, as a playlist. The file counterpart o
 
 ## API
 
-- `new FilePlayer({ handler, openDecoder, prebufferSeconds, onBeforePlay, onProblem })`: all optional. Tests pass a fake `handler` and `openDecoder(path)`. `onProblem(problem)` gets files that can't be played and warnings about damaged ones; the page shows them as toasts ([notifications.md](notifications.md)).
+- `new FilePlayer({ handler, openDecoder, prebufferSeconds, leadSeconds, onBeforePlay, onProblem })`: all optional. Tests pass a fake `handler` and `openDecoder(path)`. `onProblem(problem)` gets files that can't be played and warnings about damaged ones; the page shows them as toasts ([notifications.md](notifications.md)).
 - State (`$state`): `status` (`idle | loading | playing | buffering | paused`), `tracks` (the whole playlist), `currentIndex`, `positionSeconds`, `interrupted`. Derived: `current`, `durationSeconds`, `isActive`.
-- `enqueue(paths)`: adds to the playlist; starts playing the first new file if idle.
+- `enqueue(paths, { play })`: adds to the playlist; starts playing the first new file if idle, unless `play` is `false`.
 - `playFrom(track)`, `playPause()`, `pause()`, `resume()`, `togglePause()`, `next()`, `previous()`, `seek(seconds)`, `stop()`, `clear()`, `destroy()`.
 - `release()`: like `stop()` but leaves the handler alone. Called when another player takes the handler.
 - `readWaveform(target)`: forwards to the handler, for the visualiser.
@@ -23,7 +23,8 @@ Plays audio files dropped onto the window, as a playlist. The file counterpart o
 
 - One `WebAudioHandler` is shared with `CDPlayer`. Each player's `onBeforePlay` calls the other's `release()`, and the page switches to that source. A run claims the handler's `onEnded` and `onInterruption` callbacks.
 - `tracks` stays whole while playing (unlike the CD queue, where played tracks are removed). `stop()` keeps it; `clear()` empties it.
-- The decode loop keeps `TARGET_LEAD_SECONDS` (30 s) scheduled, then opens the next file while the lead is still ahead, so files join with no gap. Memory is that lead and no more.
+- The decode loop keeps `TARGET_LEAD_SECONDS` (15 s) scheduled, then opens the next file while the lead is still ahead, so files join with no gap. Memory is that lead and no more. It reads one chunk (2 s) each time the lead drops below the target, so a file on a disc is read steadily rather than in bursts, and the drive stays spinning.
+- Pausing closes the open decoder (`close_audio_file`), so the operating system can unmount or eject the disc the file is on. The loop reopens the file and seeks to the seconds already decoded (`decodedSeconds`) when it next needs audio, which is not until the lead has shrunk after resuming. A seek made while paused takes the place of that position.
 - A `TrackSpan` per file (`trackNumber` is the playlist index) maps the handler's timeline back to file and position, as in `CDPlayer`.
 - Starting holds the handler silent until `prebufferSeconds` (5 s) are decoded.
 - `next()` and an in-buffer `seek()` use `handler.skipTo()` and are instant.

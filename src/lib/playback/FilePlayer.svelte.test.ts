@@ -95,6 +95,17 @@ describe("FilePlayer", () => {
       player.destroy();
     });
 
+    it("only lists the files when told not to play", async () => {
+      const { player, opened, flush } = setup();
+
+      player.enqueue([file("a.mp3")], { play: false });
+      await flush();
+
+      expect(player.tracks).toHaveLength(1);
+      expect(player.status).toBe("idle");
+      expect(opened).toEqual([]);
+    });
+
     it("ignores an empty drop", () => {
       const { player } = setup();
 
@@ -208,7 +219,7 @@ describe("FilePlayer", () => {
     });
 
     it("seek() beyond the buffer moves the open decoder instead of reopening the file", async () => {
-      // A long file, so the decode loop is still on it, waiting with a full 30 s lead.
+      // A long file, so the decode loop is still on it, waiting with a full lead.
       const { player, opened, decoders, context, flush } = setup({ piecesPerFile: 100 });
       player.enqueue([file("long.flac")]);
       await flush();
@@ -317,6 +328,65 @@ describe("FilePlayer", () => {
 
       expect(player.status).toBe("playing");
       expect(player.currentIndex).toBe(0);
+      player.destroy();
+    });
+  });
+
+  describe("being kind to a disc", () => {
+    it("keeps about 15 s of audio scheduled ahead, topping it up as it plays", async () => {
+      const { player, context, flush } = setup({ piecesPerFile: 100 });
+      player.enqueue([file("long.flac")]);
+      await flush();
+      // Pieces are 2 s long, so the lead stops growing at 16 s.
+      expect(context.sources).toHaveLength(8);
+
+      context.currentTime += 4;
+      await vi.advanceTimersByTimeAsync(300);
+      await flush();
+
+      expect(context.sources).toHaveLength(10);
+      player.destroy();
+    });
+
+    it("closes the file while paused, and reopens it where it left off when more is needed", async () => {
+      const { player, context, decoders, opened, flush } = setup({ piecesPerFile: 100 });
+      player.enqueue([file("long.flac")]);
+      await flush();
+
+      await player.pause();
+      await vi.advanceTimersByTimeAsync(300);
+      expect(decoders[0].closed).toBe(true);
+      expect(opened).toEqual(["long.flac"]);
+
+      // Resuming reads nothing until the lead has shrunk; then the file is reopened at the 16 s already decoded.
+      await player.resume();
+      context.currentTime += 4;
+      await vi.advanceTimersByTimeAsync(300);
+      await flush();
+
+      expect(opened).toEqual(["long.flac", "long.flac"]);
+      expect(decoders[1].seekedTo).toBe(16);
+      expect(player.status).toBe("playing");
+      player.destroy();
+    });
+
+    it("moves a reopened file to a seek made while paused", async () => {
+      const { player, decoders, flush } = setup({ piecesPerFile: 100 });
+      player.enqueue([file("long.flac")]);
+      await flush();
+      await player.pause();
+      await vi.advanceTimersByTimeAsync(300);
+
+      // With the file closed this restarts the run, whose promise only settles once the whole file is decoded.
+      void player.seek(120);
+      await flush();
+      await player.resume();
+      await vi.advanceTimersByTimeAsync(600);
+      await flush();
+
+      expect(player.status).toBe("playing");
+      expect(player.positionSeconds).toBe(120);
+      expect(decoders.at(-1)?.seekedTo).toBe(120);
       player.destroy();
     });
   });

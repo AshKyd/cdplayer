@@ -23,6 +23,8 @@ interface Options {
   openDecoder?: (path: string) => Promise<FileDecoder>;
   /** Seconds of audio to hold back before a run starts sounding; defaults to `PREBUFFER_SECONDS`. */
   prebufferSeconds?: number;
+  /** Seconds of audio to keep scheduled ahead; defaults to `TARGET_LEAD_SECONDS`. */
+  leadSeconds?: number;
   /** Called when a run is about to start, so another player sharing the handler can let go of it. */
   onBeforePlay?: () => void;
   /** Called with a file that couldn't be played, or a warning about one. The page shows it as a toast. */
@@ -35,8 +37,12 @@ const FADE_SECONDS = 0.1;
 /** A run doesn't make a sound until this much audio is decoded, so a slow first read can't cause a stutter. */
 const PREBUFFER_SECONDS = 5;
 
-/** Keep this much audio scheduled ahead, so a slow decode doesn't cause a dropout. */
-const TARGET_LEAD_SECONDS = 30;
+/**
+ * Keep this much audio scheduled ahead, so a slow decode (or an optical drive) doesn't cause a dropout.
+ * It is topped up one chunk at a time as the lead shrinks, so a disc gets a steady trickle of reads
+ * rather than a burst and a long idle, and its drive doesn't spin down and up again.
+ */
+const TARGET_LEAD_SECONDS = 15;
 
 const LEAD_CHECK_INTERVAL_MS = 250;
 
@@ -50,6 +56,8 @@ const isActiveStatus = (status: FilePlayerStatus) => status !== "idle";
  *
  * Unlike the CD queue, `tracks` is the whole playlist and stays put as tracks play; `currentIndex` says
  * which is playing. Files are decoded as a stream (see `FileDecoder`), only as far ahead as `TARGET_LEAD_SECONDS`.
+ * While paused the open file is closed (and reopened where it left off on resume), so the operating system
+ * can unmount or eject the disc the file is on.
  * The next file is opened while the lead is still ahead, so it joins the stream without a gap. As in
  * `CDPlayer`, the handler's timeline runs across all files, so a `TrackSpan` per file (its `trackNumber` is the
  * playlist index) translates it back into "which file, how far in".
@@ -75,6 +83,7 @@ export class FilePlayer {
   #onBeforePlay: () => void;
   #onProblem: (problem: Problem) => void;
   #prebufferSeconds: number;
+  #leadSeconds: number;
   /** Bumped by every `#start()` and stop; an older run sees the change and abandons its work. */
   #runId = 0;
   /** Timeline position of each decoded file. */
@@ -99,6 +108,7 @@ export class FilePlayer {
     handler = new WebAudioHandler({ fadeSeconds: () => (settings.fadeEnabled ? FADE_SECONDS : 0) }),
     openDecoder = (path) => openRustFileDecoder(path),
     prebufferSeconds = PREBUFFER_SECONDS,
+    leadSeconds = TARGET_LEAD_SECONDS,
     onBeforePlay = () => {},
     onProblem = () => {},
   }: Options = {}) {
@@ -106,6 +116,7 @@ export class FilePlayer {
     this.#onProblem = onProblem;
     this.#openDecoder = openDecoder;
     this.#prebufferSeconds = prebufferSeconds;
+    this.#leadSeconds = leadSeconds;
     this.#onBeforePlay = onBeforePlay;
   }
 
@@ -125,14 +136,17 @@ export class FilePlayer {
     return this.#handler.readWaveform(target);
   }
 
-  /** Adds files to the end of the playlist, and starts playing the first of them if nothing is playing. */
-  enqueue(paths: string[]): void {
+  /**
+   * Adds files to the end of the playlist, and starts playing the first of them if nothing is playing
+   * (unless `play` is false, which only lists them).
+   */
+  enqueue(paths: string[], { play = true } = {}): void {
     if (paths.length === 0) return;
     const firstNewIndex = this.tracks.length;
     this.tracks.push(...paths.map(createFileTrack));
 
     if (this.status === "idle") {
-      void this.#start(firstNewIndex, 0);
+      if (play) void this.#start(firstNewIndex, 0);
       return;
     }
     if (!this.#fetching) void this.#pump(this.#runId, 0);
@@ -389,16 +403,28 @@ export class FilePlayer {
     this.#openGateIfReady();
   }
 
-  /** Decodes one file and schedules it, topping the lead up to `TARGET_LEAD_SECONDS`. */
+  /**
+   * Decodes one file and schedules it, topping the lead up to `#leadSeconds`. While paused the file is closed,
+   * so a disc it is on can be ejected; it is reopened where it left off when playing resumes.
+   */
   async #decodeTrack(index: number, offsetSeconds: number, isCancelled: () => boolean): Promise<void> {
     const track = this.tracks[index];
-    const decoder = await this.#openDecoder(track.path);
-    try {
-      if (isCancelled()) return;
-      track.durationSeconds = decoder.durationSeconds;
-      // Said once per file: a badly damaged one would otherwise warn on every chunk.
-      let hasWarnedOfDamage = false;
-      decoder.onDamagedAudio = (damagedPackets) => {
+    // Said once per file: a badly damaged one would otherwise warn on every chunk.
+    let hasWarnedOfDamage = false;
+    /** Seconds into the file that the next read returns; where a reopened decoder is moved to. */
+    let decodedSeconds = offsetSeconds;
+    let isFirstBuffer = true;
+    let decoder: FileDecoder | null = null;
+
+    /** Opens the file at `decodedSeconds`; `null` if the run was cancelled meanwhile. */
+    const openDecoder = async (): Promise<FileDecoder | null> => {
+      const opened = await this.#openDecoder(track.path);
+      if (isCancelled()) {
+        opened.close();
+        return null;
+      }
+      track.durationSeconds = opened.durationSeconds;
+      opened.onDamagedAudio = (damagedPackets) => {
         if (hasWarnedOfDamage) return;
         hasWarnedOfDamage = true;
         this.#onProblem({
@@ -407,15 +433,37 @@ export class FilePlayer {
           message: `Some audio couldn't be decoded and was skipped (${damagedPackets} packet${damagedPackets === 1 ? "" : "s"} so far).`,
         });
       };
-      if (offsetSeconds > 0) decoder.seek(offsetSeconds);
-      let isFirstBuffer = true;
+      if (decodedSeconds > 0) opened.seek(decodedSeconds);
       this.#isDecoderOpen = true;
+      return opened;
+    };
+
+    try {
+      decoder = await openDecoder();
+      if (!decoder) return;
 
       while (!isCancelled()) {
         // Wait while the lead is full, or paused (the lead isn't shrinking then).
-        while (this.status === "paused" || this.#handler.leadSeconds >= TARGET_LEAD_SECONDS) {
+        while (this.status === "paused" || this.#handler.leadSeconds >= this.#leadSeconds) {
+          // Pausing lets go of the file, so the disc it is on can be ejected.
+          if (this.status === "paused" && decoder) {
+            decoder.close();
+            decoder = null;
+            this.#isDecoderOpen = false;
+          }
           await sleep(LEAD_CHECK_INTERVAL_MS);
           if (isCancelled()) return;
+        }
+
+        if (!decoder) {
+          // A seek made while paused wins over where the file was left.
+          if (this.#pendingSeekSeconds !== null) {
+            offsetSeconds = decodedSeconds = this.#pendingSeekSeconds;
+            this.#pendingSeekSeconds = null;
+            isFirstBuffer = true;
+          }
+          decoder = await openDecoder();
+          if (!decoder) return;
         }
 
         const buffer = await decoder.read();
@@ -423,7 +471,7 @@ export class FilePlayer {
 
         // A seek arrived during the read: that buffer is from the old position, so drop it and move there.
         if (this.#pendingSeekSeconds !== null) {
-          offsetSeconds = this.#pendingSeekSeconds;
+          offsetSeconds = decodedSeconds = this.#pendingSeekSeconds;
           this.#pendingSeekSeconds = null;
           decoder.seek(offsetSeconds);
           isFirstBuffer = true;
@@ -437,14 +485,16 @@ export class FilePlayer {
           isFirstBuffer = false;
         }
         this.#handler.appendBuffer(buffer);
-        this.#scheduledSeconds += buffer.length / SAMPLE_RATE;
+        const bufferSeconds = buffer.length / SAMPLE_RATE;
+        this.#scheduledSeconds += bufferSeconds;
+        decodedSeconds += bufferSeconds;
         if (this.#prebuffering) this.#openGateIfReady();
         else this.#markPlaying();
       }
     } finally {
       // A cancelled run finishes late, after a new run may have opened its own decoder; leave that run's flag alone.
       if (!isCancelled()) this.#isDecoderOpen = false;
-      decoder.close();
+      decoder?.close();
     }
   }
 
