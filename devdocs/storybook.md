@@ -7,6 +7,9 @@ Renders components on their own, so edge cases can be checked without a disc.
 - `.storybook/main.ts`: config. Telemetry and onboarding are off. Finds `src/**/*.stories.(ts|svelte)`.
 - `.storybook/preview.ts`: global parameters.
 - `src/lib/components/AlbumHeader/AlbumHeader.stories.svelte`: album titles from short to extreme at the main page's 16rem album width.
+- `.storybook/assets/`: served as static files (`staticDirs`), not part of the app build. Holds `making-me-nervous.m4a` (Brad Sucks, CC BY-SA 3.0) and `tobu-hope.m4a` (Tobu, Creative Commons, variant not yet recorded). `CREDITS.md` has the attribution.
+- `src/lib/components/Visualiser/Visualiser.stories.svelte`: `Waveform` and `Rainbow tunnel` stories. They play a track through an `AnalyserNode` (`VisualiserPlayground/storyAudio.ts`) into the real `Visualiser`. Controls: Play/Pause, a seek bar (the jump happens when the thumb is let go; a seek restarts the audio source at that point), a track picker and a visualiser picker. Press Play first: browsers won't start audio without a click.
+- `src/lib/components/Visualiser/VisualiserPlayground/storyTracks.ts`: `STORY_TRACKS`, the tracks the picker offers, with the credit shown on screen. Add a track here and in `CREDITS.md`.
 
 ## Use
 
