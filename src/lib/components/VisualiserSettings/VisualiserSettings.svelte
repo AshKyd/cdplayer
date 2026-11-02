@@ -1,9 +1,22 @@
 <script lang="ts">
   import { ControlGroup, ControlItemExpanded, Select } from "svelte-akui";
   import { settings } from "$lib/settings/settings.svelte";
-  import { isVisualiserId, VISUALISERS } from "$lib/visualisers/visualiserCatalogue";
+  import { onMount } from "svelte";
+  import { listPresetNames } from "$lib/visualisers/butterchurnPresets";
+  import { isVisualiserId, RANDOM_PRESET_SECONDS, RANDOM_VISUALISER_ID } from "$lib/visualisers/visualiserCatalogue";
 
-  const visualiserOptions = VISUALISERS.map(({ id, label }) => ({ value: id, label }));
+  let presetNames = $state<string[]>([]);
+  onMount(() => {
+    void listPresetNames().then((names) => (presetNames = names));
+  });
+
+  // The saved choice is listed even before the pack has loaded, so the select never shows blank.
+  const visualiserOptions = $derived([
+    { value: RANDOM_VISUALISER_ID, label: "Random" },
+    ...(presetNames.length > 0 ? presetNames : [settings.visualiserId])
+      .filter((name) => name !== RANDOM_VISUALISER_ID)
+      .map((name) => ({ value: name, label: name })),
+  ]);
 </script>
 
 <ControlGroup role="group">
@@ -17,7 +30,9 @@
   />
   <ControlItemExpanded
     label="Visualiser"
-    description={VISUALISERS.find(({ id }) => id === settings.visualiserId)?.description}
+    description={settings.visualiserId === RANDOM_VISUALISER_ID
+      ? `Changes to a new preset every ${RANDOM_PRESET_SECONDS} seconds.`
+      : undefined}
     layout="horizontal"
     wrapperRole="listitem"
   >

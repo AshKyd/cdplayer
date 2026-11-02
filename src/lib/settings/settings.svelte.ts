@@ -10,9 +10,9 @@ export interface SettingsValues {
   readonly fadeEnabled: boolean;
   /** Start playing from the first track as soon as a disc is ready. */
   readonly autoplayEnabled: boolean;
-  /** Draw the waveform visualiser behind the player. */
+  /** Draw the visualiser behind the player. */
   readonly visualiserEnabled: boolean;
-  /** Which visualiser to draw (see `VISUALISERS`). */
+  /** Which visualiser to draw (see `PRESET_NAMES`). */
   readonly visualiserId: VisualiserId;
   /** Last.fm account name. Empty means not signed in. */
   readonly lastFmUsername: string;

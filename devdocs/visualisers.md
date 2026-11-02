@@ -1,49 +1,47 @@
 # Visualisers
 
-Canvas animations behind the player. Each one runs in a worker on an `OffscreenCanvas`.
+[butterchurn](https://github.com/jberg/butterchurn) (MilkDrop in WebGL2) draws the backdrop. The user picks one preset from a short list (`PRESET_NAMES`), or "Random".
 
 ## Files
 
-- `src/lib/components/Visualiser/Visualiser.svelte`: creates the worker, transfers the canvas, sends data.
-- `src/lib/visualisers/types.ts`: the `Visualiser` interface and its data types.
-- `src/lib/visualisers/visualiserCatalogue.ts`: `VISUALISERS` (id, label, description), `VisualiserId`, `isVisualiserId()`. Safe to import anywhere.
-- `src/lib/visualisers/visualiserLoaders.ts`: `VISUALISER_LOADERS`, a dynamic import per id.
-- `src/lib/visualisers/visualiser.worker.ts`: loads the chosen visualiser, passes messages to it, logs the framerate every 5 s.
-- `src/lib/visualisers/visualiserMessages.ts`: page-to-worker message types.
-- `src/lib/visualisers/loadCoverBitmap.ts`: fetches a cover URL as an `ImageBitmap`.
-- `src/lib/visualisers/waveform/`: the `waveform` visualiser (`waveformVisualiser.ts`, `waveformPoints.ts`).
-- `src/lib/visualisers/rings/`: the `rings` visualiser (`ringsVisualiser.ts`, `ringGeometry.ts`).
-
-## API
-
-A visualiser module default-exports a `VisualiserFactory`: `(canvas: OffscreenCanvas) => Visualiser`.
-
-`Visualiser` methods, called in order:
-
-- `resize({ width, height, pixelRatio })`: canvas size in device pixels.
-- `setTrack(track | null)`: `number`, `title`, `artist`, `durationSeconds`.
-- `setAlbum(album | null)`: `title`, `artist`, `year`, `cover` (`ImageBitmap | null`). The visualiser owns `cover`; call `close()` if it is not kept.
-- `renderFrame({ samples, accentColour, timeMs })`: `samples` are analyser bytes (128 = silence), or `null` when not playing.
+- `src/lib/components/Visualiser/Visualiser.svelte`: creates the butterchurn renderer on its canvas, feeds it samples at 30 fps, loads the chosen preset, shows the track title.
+- `src/lib/visualisers/visualiserCatalogue.ts`: `PRESET_NAMES` (the presets on offer, in order), `RANDOM_VISUALISER_ID`, `DEFAULT_VISUALISER_ID`, `isVisualiserId()`. Names only, so it is safe to import anywhere. A saved choice that is not in the list falls back to the default.
+- `src/lib/visualisers/butterchurnPresets.ts`: `listPresetNames()` (just `PRESET_NAMES`, no pack load) and `loadButterchurnPreset(name)`, which returns one of ours or imports `butterchurn-presets` (the large base pack) on first use.
+- `src/lib/visualisers/customPresets/`: presets written for this app (`CUSTOM_PRESETS`, by display name). `relativeDimensions.ts` is "Relative dimensions": emitter A is 192 shape instances along a path that eases between spiral, circle and star while rotating; emitter B is two rings of evenly spaced emitters that follow the treble drawn in the `warp` shader (see below). Hues are complementary and cycle the rainbow every 20 s, drawn into a zooming, twisting feedback loop.
+- `src/lib/visualisers/presetTweaks.ts`: `PRESET_TWEAKS`, literal text edits to individual presets (for example to tame one that is too bright), applied to a copy when the preset loads. An edit that no longer matches logs a warning.
+- `src/lib/visualisers/butterchurn.d.ts`: types for the two packages, which ship none.
+- `src/lib/visualisers/types.ts`: `VisualiserTrackInfo`.
 
 ## Behaviour
 
-- On load the page sends `resize`, `setTrack`, `setAlbum` (text first, then again with the decoded cover), then frames. `setTrack` and `setAlbum` are sent again when they change.
-- The `AnalyserNode` only exists on the main thread, so the page reads samples and posts them. Frames are sent at 30 fps, also while paused (with `samples: null`) so trails can fade.
-- Messages that arrive while the visualiser module is loading wait for it and keep their order.
-- Choosing another visualiser in settings re-creates the component (`{#key}`), so it gets a new canvas and worker.
+- Runs on the main thread. butterchurn needs `window`, `document` and WebGL2, so it cannot run in a worker.
+- Each frame the page reads the `AnalyserNode` bytes (`readWaveform`) and passes them to `render({ audioLevels })`, the same samples for both channels. When not playing it passes silence (128), so the preset settles.
+- butterchurn is given an `OfflineAudioContext` only for its sample rate (44.1 kHz).
+- Changing preset blends over 1.5 s. Settings re-create the component (`{#key}`) anyway.
+- When the track changes, `launchSongTitleAnim("artist - title")` shows it.
+- The canvas is opaque: the visualiser fully covers the backdrop.
 
 ## Adding a visualiser
 
-1. Write a module that default-exports a `VisualiserFactory`.
-2. Add it to `VISUALISER_LOADERS`.
-3. Add it to `VISUALISERS`.
+Add the name to `PRESET_NAMES`. For a pack preset, spell it exactly as the pack does (`presetNames.test.ts` checks against the real pack). For one of ours, also export a preset object from `customPresets/` and add it to `CUSTOM_PRESETS`.
 
-## Visualisers
+## Relative dimensions: the emitter rings in the warp shader
 
-- `waveform`: one line across the window in the accent colour. Each frame erases 28% of the previous one, so old lines fade.
-- `rings`: each frame the previous frame is enlarged 5% about the centre and repainted at 92% opacity, then a ring is drawn in the middle. Angle is the sample index, radius is the amplitude. The colour cycles through the rainbow at 50° of hue per second.
+- Butterchurn has no GPU instancing: each shape instance costs a wasm call and about 12 GL calls. Hundreds of particles as shapes were too slow, so the emitters are drawn by the `warp` shader, which runs in the feedback pass (so they get the zoom, twist and fade, the same as the main shape).
+- Butterchurn only gives a preset three bands: bass (20 to 320 Hz), mid (320 Hz to 2.8 kHz) and treb (2.8 to 11 kHz), each relative to the track's own long-term average. The main shape uses bass (the kick). Both rings follow the treble: `q9` is the treble level above average, eased, times the sound level (`q6`). With no drive nothing is drawn. Each emitter also flickers on its own, eight times a second, like a cymbal wash.
+- Two rings: the outer has 24 emitters and turns steadily counterclockwise on screen, so its dots trace lines. The inner has 16 and jumps to a new random angle twenty times a second, so its dots land all round and the zoom spreads each into a star-like burst. Their distance from the centre swings on a sine wave (outer, 0.34 +- 0.06) and a cosine wave (inner, 0.20 +- 0.05), so the emitters wander in and out as they turn.
+- An emitter emits one point at a time: a dot (radius 0.0075 of the screen height) where it is now, every frame. The feedback zoom and twist carry the earlier dots outward, which makes the trail. Nothing depends on earlier frames inside the shader, so there is no state.
+- The emitters of a ring are identical, turned by whole sectors, so the shader turns each pixel back into the nearest emitter's sector and measures from that one.
+- `q7`/`q8` (`aspecty`/`aspectx`) make offsets from the centre round on screen, in units of the shorter side. The shader relies on that for the rotation.
+- Tried and removed: a mids row (lit nearly all the time), and streams of 16 particles in flight per emitter.
+- GLSL is not compiled by the tests. Check it in Storybook (the console shows compile errors).
+
+## Frame rate
+
+`Visualiser.svelte` logs `visualiserFps` and `renderMs` (CPU time in `render()`) every 5 s. A slow GPU shows as low fps with low `renderMs`. The textures are `width * pixelRatio` and the component already passes device pixels, so `pixelRatio` is 1.
 
 ## Limits
 
-- Neither visualiser uses the track or album yet.
-- Adding a visualiser outside the repo (a true plugin) is not supported: the loaders are a fixed list.
+- Only presets from the base pack (by exact name) and `CUSTOM_PRESETS`. The other packs are not loaded.
+- Album art is not used.
+- Mono analyser, so no stereo effects.

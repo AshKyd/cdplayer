@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount, untrack } from "svelte";
-  import { DEFAULT_VISUALISER_ID, VISUALISERS, type VisualiserId } from "$lib/visualisers/visualiserCatalogue";
+  import { listPresetNames } from "$lib/visualisers/butterchurnPresets";
+  import { DEFAULT_VISUALISER_ID, RANDOM_VISUALISER_ID, type VisualiserId } from "$lib/visualisers/visualiserCatalogue";
   import Visualiser from "../Visualiser.svelte";
   import { createStoryPlayer } from "./storyAudio";
   import type { StoryTrack } from "./storyTracks";
@@ -27,10 +28,13 @@
 
   const track = $derived(tracks[trackIndex]);
 
+  let presetNames = $state<string[]>([]);
+
   onDestroy(() => player.dispose());
 
   // Follows the playing position for the seek bar, once a frame.
   onMount(() => {
+    void listPresetNames().then((names) => (presetNames = names));
     let frameId = 0;
     const tick = () => {
       frameId = requestAnimationFrame(tick);
@@ -68,14 +72,13 @@
   const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 </script>
 
-<!-- A fresh component per visualiser: the canvas can only be handed to a worker once. -->
+<!-- A fresh component per visualiser, matching the app. -->
 {#key visualiserId}
   <Visualiser
     {visualiserId}
     readWaveform={(target) => player.readWaveform(target)}
     {playing}
     track={null}
-    album={null}
   />
 {/key}
 
@@ -113,16 +116,19 @@
   <label>
     Visualiser
     <select bind:value={visualiserId}>
-      {#each VISUALISERS as { id, label } (id)}
-        <option value={id}>{label}</option>
+      <option value={RANDOM_VISUALISER_ID}>Random</option>
+      {#each presetNames as name (name)}
+        <option value={name}>{name}</option>
       {/each}
     </select>
   </label>
 
   <p class="credit">
-    “{track.title}” by
+    “<a href={track.sourceUrl} target="_blank" rel="noreferrer">{track.title}</a>” by
     <a href={track.artistUrl} target="_blank" rel="noreferrer">{track.artist}</a>,
+    licensed under
     <a href={track.licence.url} target="_blank" rel="noreferrer">{track.licence.label}</a>.
+    {track.changes}
   </p>
 </div>
 

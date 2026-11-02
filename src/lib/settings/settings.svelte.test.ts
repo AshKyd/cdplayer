@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AppSettings, DEFAULT_SETTINGS, type SettingsStorage, type SettingsSync, type SettingsValues } from "./settings.svelte";
+import { DEFAULT_VISUALISER_ID } from "$lib/visualisers/visualiserCatalogue";
 
 const makeStorage = (initial: Record<string, string> = {}): SettingsStorage & { items: Record<string, string> } => {
   const items = { ...initial };
@@ -67,16 +68,19 @@ describe("AppSettings", () => {
     expect(JSON.parse(storage.items[KEY]).visualiserEnabled).toBe(false);
   });
 
-  it("starts on the waveform visualiser, saves a choice, and ignores unknown ones", () => {
+  it("starts on the default, saves a choice, and ignores one that is not offered", () => {
     const storage = makeStorage();
     const settings = new AppSettings({ storage });
-    expect(settings.visualiserId).toBe("waveform");
+    expect(settings.visualiserId).toBe(DEFAULT_VISUALISER_ID);
 
-    settings.visualiserId = "rings";
-    expect(JSON.parse(storage.items[KEY]).visualiserId).toBe("rings");
+    settings.visualiserId = "ORB - Waaa";
+    expect(JSON.parse(storage.items[KEY]).visualiserId).toBe("ORB - Waaa");
 
-    const stale = makeStorage({ [KEY]: JSON.stringify({ visualiserId: "removed-one" }) });
-    expect(new AppSettings({ storage: stale }).visualiserId).toBe("waveform");
+    // A number, and a preset that is no longer offered, both fall back.
+    [42, "martin - disco mix 4"].forEach((visualiserId) => {
+      const stale = makeStorage({ [KEY]: JSON.stringify({ visualiserId }) });
+      expect(new AppSettings({ storage: stale }).visualiserId).toBe(DEFAULT_VISUALISER_ID);
+    });
   });
 
   it("starts with no Last.fm login, and saves the username and password hash", () => {

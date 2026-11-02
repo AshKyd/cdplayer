@@ -93,14 +93,6 @@
       durationSeconds: player.durationSeconds,
     };
   });
-  const visualiserAlbum = $derived(
-    player.metadata && {
-      title: player.metadata.album,
-      artist: player.metadata.artist,
-      year: player.metadata.year,
-      coverUrl: player.metadata.coverUrl,
-    },
-  );
   /** True while the disc is being read or looked up. */
   const isReadingDisc = $derived(player.status === "loadingMetadata" || (player.status === "noDisc" && player.readingDisc));
   /** There is nothing to play yet: no disc, or still reading it. The playback controls are disabled. */
@@ -163,14 +155,13 @@
 <svelte:window onkeydown={(event) => visualiserOnly && event.key === "Escape" && setVisualiserOnly(false)} />
 
 {#if settings.visualiserEnabled || visualiserOnly}
-  <!-- Keyed so choosing another visualiser in settings starts a fresh canvas and worker. -->
+  <!-- Keyed so choosing another visualiser in settings starts a fresh canvas. -->
   {#key settings.visualiserId}
     <Visualiser
       visualiserId={settings.visualiserId}
       readWaveform={(target) => player.readWaveform(target)}
       playing={isSounding}
       track={visualiserTrack}
-      album={visualiserAlbum}
     />
   {/key}
 {/if}

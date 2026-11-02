@@ -14,10 +14,16 @@
   Plays Creative Commons tracks (see `.storybook/assets/CREDITS.md`) so the visualisers can be tried on real music,
   with a seek bar. Press Play: browsers won't start audio before a click.
 -->
-<Story name="Waveform" asChild>
-  <UIRoot><VisualiserPlayground tracks={STORY_TRACKS} initialVisualiserId="waveform" /></UIRoot>
+<Story name="Relative dimensions" asChild>
+  <UIRoot><VisualiserPlayground tracks={STORY_TRACKS} initialVisualiserId="Relative dimensions" /></UIRoot>
 </Story>
 
-<Story name="Rainbow tunnel" asChild>
-  <UIRoot><VisualiserPlayground tracks={STORY_TRACKS} initialVisualiserId="rings" /></UIRoot>
+<Story name="Random" asChild>
+  <UIRoot><VisualiserPlayground tracks={STORY_TRACKS} initialVisualiserId="random" /></UIRoot>
+</Story>
+
+<Story name="Painterly 2" asChild>
+  <UIRoot>
+    <VisualiserPlayground tracks={STORY_TRACKS} initialVisualiserId="Geiss - Cauldron - painterly 2 (saturation remix)" />
+  </UIRoot>
 </Story>

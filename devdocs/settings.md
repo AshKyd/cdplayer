@@ -28,7 +28,7 @@ User settings, kept in a store that every window shares, saved to `localStorage`
   - `autoplayEnabled` (default off): a disc plays from the first track once it is ready (after the metadata lookup). Read by `CDPlayer` each time a disc settles.
   - `fadeEnabled` (default on): the audio fades in and out over 100 ms on play, resume and pause. Read each time, so it applies at once.
   - `visualiserEnabled` (default on): the page shows the `Visualiser` behind the player. When off the component is unmounted, so nothing is drawn or measured. It applies at once, in every window.
-  - `visualiserId` (default `waveform`): which visualiser to draw, from `VISUALISERS`. Unknown ids fall back to the default. Changing it re-creates the canvas and worker.
+  - `visualiserId` (default `Geiss - Cauldron - painterly 2 (saturation remix)`): a butterchurn preset name, or `random`. Non-strings fall back to the default; a name missing from the pack draws nothing. Changing it re-creates the canvas.
   - `lastFmUsername`, `lastFmPasswordHash` (default empty): the Last.fm login, set in the "Last.fm" section. Only the MD5 of the password is stored. Read each time `LastFmScrobbler` sends, so it applies at once. See [last-fm.md](last-fm.md).
   - `coverColours` (default `null`): the `{ primary, secondary }` colours of the current cover, written by `CoverTheme` and applied by `CoverAccent` in every window. It is kept between runs so the app opens already tinted. `CoverTheme` replaces it once the disc has been read, and sets `null` if the disc has no usable cover. See [cover-theme.md](cover-theme.md).
 
