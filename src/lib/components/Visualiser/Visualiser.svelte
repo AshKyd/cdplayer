@@ -32,6 +32,21 @@
   /** Butterchurn only needs the context for its sample rate: the audio comes from `readWaveform`, not a node. */
   const SAMPLE_RATE = 44100;
 
+  /** A canvas with more pixels than this is drawn smaller and stretched by the browser. Smaller ones are drawn 1:1. */
+  const FULL_RESOLUTION_MAX_PIXELS = 1_500_000;
+  /** How much smaller (each way) a canvas over `FULL_RESOLUTION_MAX_PIXELS` is drawn: 0.5 is a quarter of the pixels. */
+  const BIG_CANVAS_SCALE = 0.5;
+  /**
+   * Most pixels to draw each frame, whatever the scale above gives. Fullscreen on a 5K display is still about 3.7
+   * million at half size. The picture is soft feedback glow, so the stretch isn't noticeable.
+   */
+  const MAX_RENDER_PIXELS = 1920 * 1080;
+  /**
+   * Wait this long after the last size change before resizing the renderer. Fullscreen and the window's height
+   * animation send a resize every frame for a while, and each real resize reallocates butterchurn's textures.
+   */
+  const RESIZE_SETTLE_MS = 120;
+
   /** Butterchurn's own analyser size; `updateAudio` throws if given more. */
   const BUTTERCHURN_SAMPLES = 1024;
 
@@ -76,10 +91,14 @@
    * The page reads the analyser's samples each frame and gives them to butterchurn directly.
    */
   onMount(() => {
-    const size = () => ({
-      width: Math.max(1, Math.round(canvas.clientWidth * devicePixelRatio)),
-      height: Math.max(1, Math.round(canvas.clientHeight * devicePixelRatio)),
-    });
+    /** The canvas size to draw at: device pixels, scaled down if the canvas is big (see the constants above). */
+    const size = () => {
+      const width = canvas.clientWidth * devicePixelRatio;
+      const height = canvas.clientHeight * devicePixelRatio;
+      const pixels = Math.max(1, width * height);
+      const scale = Math.min(pixels > FULL_RESOLUTION_MAX_PIXELS ? BIG_CANVAS_SCALE : 1, Math.sqrt(MAX_RENDER_PIXELS / pixels));
+      return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
+    };
     const initial = size();
     canvas.width = initial.width;
     canvas.height = initial.height;
@@ -90,23 +109,8 @@
       pixelRatio: 1,
     });
 
-    const resize = () => {
-      const { width, height } = size();
-      canvas.width = width;
-      canvas.height = height;
-      if (presetLoaded) created.setRendererSize(width, height);
-    };
-    const observer = new ResizeObserver(resize);
-    observer.observe(canvas);
-
     const samples = new Uint8Array(WAVEFORM_SAMPLES);
-    let frameId = 0;
-    let lastFrameTime = 0;
-    const tick = (now: number) => {
-      frameId = requestAnimationFrame(tick);
-      // Skip display frames until the next 30 fps slot is due.
-      if (now - lastFrameTime < FRAME_INTERVAL_MS - FRAME_TIMING_SLACK_MS) return;
-      lastFrameTime = now;
+    const drawFrame = () => {
       if (!presetLoaded) return;
       const hasSamples = playing && readWaveform(samples);
       if (!hasSamples) samples.fill(128);
@@ -117,12 +121,41 @@
       created.render({ audioLevels: { timeByteArray: latest, timeByteArrayL: latest, timeByteArrayR: latest } });
       recordFrame(performance.now() - renderStart);
     };
+
+    const resize = () => {
+      const { width, height } = size();
+      if (width === canvas.width && height === canvas.height) return;
+      // Setting the size blanks the canvas, so draw straight away rather than show nothing until the next frame.
+      canvas.width = width;
+      canvas.height = height;
+      if (!presetLoaded) return;
+      created.setRendererSize(width, height);
+      drawFrame();
+    };
+    // Until the size settles the browser stretches the old picture to fit, which is smooth and costs nothing.
+    let settleTimer: ReturnType<typeof setTimeout> | undefined;
+    const observer = new ResizeObserver(() => {
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(resize, RESIZE_SETTLE_MS);
+    });
+    observer.observe(canvas);
+
+    let frameId = 0;
+    let lastFrameTime = 0;
+    const tick = (now: number) => {
+      frameId = requestAnimationFrame(tick);
+      // Skip display frames until the next 30 fps slot is due.
+      if (now - lastFrameTime < FRAME_INTERVAL_MS - FRAME_TIMING_SLACK_MS) return;
+      lastFrameTime = now;
+      drawFrame();
+    };
     frameId = requestAnimationFrame(tick);
 
     renderer = created;
     return () => {
       renderer = undefined;
       cancelAnimationFrame(frameId);
+      clearTimeout(settleTimer);
       observer.disconnect();
       created.loseGLContext();
     };
