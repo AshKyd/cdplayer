@@ -1,18 +1,17 @@
 <script lang="ts">
   import { fade } from "svelte/transition";
   import { DetailsTable, Icon, type DetailsTableColumn } from "svelte-akui";
-  import type { Track } from "$lib/disc/types";
   import type { TrackRow } from "./trackRows";
 
   interface Props {
-    /** One row per track of the disc, in disc order. */
+    /** One row per track, in order. */
     rows: TrackRow[];
     /** Number of the track being played, marked in the first column. */
     currentTrackNumber: number | null;
     /** Whether that track is playing (a speaker) rather than paused. */
     playing: boolean;
-    /** Called when a playable track is double-clicked, or Enter is pressed on it. */
-    onplay: (track: Track) => void;
+    /** Called when a playable row is double-clicked, or Enter is pressed on it. */
+    onplay: (row: TrackRow) => void;
   }
 
   let { rows, currentTrackNumber, playing, onplay }: Props = $props();
@@ -32,7 +31,7 @@
   let clickedRow: TrackRow | null = null;
 
   const playRow = (row: TrackRow | null) => {
-    if (row?.playable) onplay(row.track);
+    if (row?.playable) onplay(row);
   };
 
   const handleRowClick = (row: TrackRow, event: MouseEvent | KeyboardEvent) => {

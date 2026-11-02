@@ -7,7 +7,7 @@ This document outlines the architecture for a cross-platform (macOS, Windows, Li
 
 The system is divided into a Rust backend managing hardware access and a Web frontend handling audio routing and UI, communicating via Tauri's custom protocol.
 
-**Design principle: keep it a JS app.** Rust only does what JS cannot: talk to the drive (read the TOC, read sectors, re-open the drive). State, timing, polling, queueing and decisions live in JS. When a feature can be done in either, do it in JS. For example, disc insert/eject detection is a JS poll ([disc-watcher.md](disc-watcher.md)) over one thin Rust command, and the MusicBrainz disc ID and lookup are JS ([musicbrainz.md](musicbrainz.md)).
+**Design principle: keep it a JS app.** Rust only does what JS cannot: talk to the drive (read the TOC, read sectors, re-open the drive) and decode audio files ([file-decoder.md](file-decoder.md)). State, timing, polling, queueing and decisions live in JS. When a feature can be done in either, do it in JS. For example, disc insert/eject detection is a JS poll ([disc-watcher.md](disc-watcher.md)) over one thin Rust command, and the MusicBrainz disc ID and lookup are JS ([musicbrainz.md](musicbrainz.md)).
 
 ```text
 [ Physical Audio CD ]
@@ -52,12 +52,14 @@ The frontend handles playback, gapless transitions, and visualizations, treating
 * **Metadata:** Track names, artist and cover come from MusicBrainz and the Cover Art Archive ([musicbrainz.md](musicbrainz.md)), looked up in JS by the disc ID computed from the TOC.
 * **Window UI:** Built with the svelte-akui library: a `DetailsTable` track list, an album header, icon transport buttons, a seek bar and a selectable visualiser as the window background ([ui.md](ui.md), [visualisers.md](visualisers.md)). The components show `CDPlayer`'s state and send it commands. Components can be viewed alone in Storybook ([storybook.md](storybook.md)).
 * **Disc spinner:** The `DiscSpinner` component ([disc-spinner.md](disc-spinner.md)) is the spinning disc shown while a disc is read or looked up.
+* **Notifications:** The `notifications` store ([notifications.md](notifications.md)) feeds an akui `NotificationArea` of toasts at the bottom right, used for file playback problems. No Rust.
 * **Settings:** The `settings` store ([settings.md](settings.md)) is saved to `localStorage`, shared by every part of a window, and synced live to the other windows with Tauri events. The settings window is a second webview that opens the `/settings` route. No Rust.
 * **System media controls:** The `NowPlaying` component (`NowPlayingBridge`; [now-playing.md](now-playing.md)) shows the track in the OS Now Playing display (macOS menubar) and handles media keys, using the Media Session API. No Rust.
 * **Cover theme:** The `CoverTheme` component ([cover-theme.md](cover-theme.md)) takes 1–2 colours from the cover with `node-vibrant` and sets the akui accent. No Rust.
 * **Last.fm:** The `LastFmScrobbler` component ([last-fm.md](last-fm.md)) sends "now playing" and scrobbles from the player's state, using the login in settings. No Rust.
 * **Audio scheduling:** The `WebAudioHandler` class ([web-audio-handler.md](web-audio-handler.md)) appends PCM segments to the playback buffer and owns the `AudioContext`.
-* **Source / engine split:** MP3 CDs will be supported later using the same architecture. A source (`CDPlayer` for audio CDs, an MP3 source later) reads or decodes audio into PCM and feeds it to `WebAudioHandler`. `WebAudioHandler` knows nothing about CDs or sectors, so the Web Audio code and the CD playback code must stay separate.
+* **Source / engine split:** A source reads or decodes audio and feeds it to `WebAudioHandler`: `CDPlayer` for audio CDs, `FilePlayer` for audio files. `WebAudioHandler` knows nothing about CDs, sectors or files, so the Web Audio code and the source code must stay separate. Both sources share one handler, so one `AudioContext` and one visualiser tap. Only one plays at a time.
+* **Audio files:** The `FilePlayer` class ([file-player.md](file-player.md)) plays files as a playlist. Rust opens and decodes them with symphonia and serves 44.1 kHz stereo PCM over a `file-track` protocol ([file-decoder.md](file-decoder.md)); this is the one place decoding is not JS, because WebKit's own decoders fail on some formats and JS/WASM decoding blocked the main thread. The `FileDrop` component ([file-drop.md](file-drop.md)) takes files dropped on the window.
 
 ### 3.3. Build tooling
 * **Docker build:** Linux and Windows bundles are built from macOS in a container ([docker-build.md](docker-build.md)).

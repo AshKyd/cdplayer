@@ -12,8 +12,8 @@ Shows the player in the OS media controls (macOS menubar Now Playing, media keys
 
 All in `src/lib/components/NowPlaying/`:
 
-- `NowPlaying.svelte`: renders nothing. Takes a `player` prop, makes the bridge on mount, and calls `update()` from an `$effect`. Used once, in `src/routes/+page.svelte`.
-- `NowPlayingBridge.ts`: `NowPlayingBridge`, plus `nowPlayingState(player)` and `nowPlayingControls(player)` which adapt a `CDPlayer`.
+- `NowPlaying.svelte`: renders nothing. Takes `nowPlaying` (a `NowPlayingState`) and `controls` props, makes the bridge on mount, and calls `update()` from an `$effect`. Used once, in `src/routes/+page.svelte`, which passes the state and controls of whichever player (CD or files) is showing.
+- `NowPlayingBridge.ts`: `NowPlayingBridge`, plus `nowPlayingState(player)` and `fileNowPlayingState(player)` which read a `CDPlayer` or `FilePlayer`, and `nowPlayingControls(player)` which maps the media keys to any object with the player methods.
 - `silentAudio.ts`: `createSilentAudio()`, a looping silent `<audio>` built from an inline 16-bit WAV data URL (no asset to ship).
 - `NowPlayingBridge.test.ts`.
 
@@ -27,7 +27,7 @@ All in `src/lib/components/NowPlaying/`:
 ## Behaviour
 
 - The silent element plays whenever the player is not paused, and pauses with it.
-- Title, artist, album and cover come from `CDPlayer` (MusicBrainz). The artist falls back to the album artist. With no MusicBrainz match the title is "Track N".
+- Title, artist, album and cover come from `CDPlayer` (MusicBrainz). The artist falls back to the album artist. With no MusicBrainz match the title is "Track N". For files ([file-player.md](file-player.md)) only the title is set, from the file name.
 - The position is reported with `setPositionState()` only when first shown, when the play state or duration changes, or when it differs from the OS's own extrapolation by more than 1 s (a seek). Not every frame.
 - `CDPlayer` is the source of truth. The OS buttons call its methods, and the silent element follows its state.
 

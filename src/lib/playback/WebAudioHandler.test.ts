@@ -13,6 +13,35 @@ const setup = () => {
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("WebAudioHandler", () => {
+  describe("appendBuffer", () => {
+    const decodedBuffer = (seconds: number, sampleRate = 44100) =>
+      ({ length: Math.round(seconds * sampleRate), sampleRate }) as AudioBuffer;
+
+    it("schedules decoded buffers back to back", () => {
+      const { handler } = setup();
+
+      handler.appendBuffer(decodedBuffer(2));
+      handler.appendBuffer(decodedBuffer(3));
+
+      expect(handler.hasQueuedAudio).toBe(true);
+      expect(handler.leadSeconds).toBeCloseTo(5.05, 2);
+    });
+
+    it("ignores an empty buffer", () => {
+      const { handler } = setup();
+
+      handler.appendBuffer(decodedBuffer(0));
+
+      expect(handler.hasQueuedAudio).toBe(false);
+    });
+
+    it("rejects audio that isn't 44.1 kHz", () => {
+      const { handler } = setup();
+
+      expect(() => handler.appendBuffer(decodedBuffer(1, 48000))).toThrow("44100");
+    });
+  });
+
   describe("pausing before the first segment", () => {
     it("creates the context suspended, and runs it again on resume", async () => {
       const { context, handler } = setup();

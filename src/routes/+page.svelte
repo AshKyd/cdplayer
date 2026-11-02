@@ -1,16 +1,21 @@
 <script lang="ts">
-  import { Button, InfoBox } from "svelte-akui";
+  import { Button, InfoBox, NotificationArea } from "svelte-akui";
   import { onMount } from "svelte";
   import AlbumHeader from "$lib/components/AlbumHeader/AlbumHeader.svelte";
+  import FileDrop from "$lib/components/FileDrop/FileDrop.svelte";
   import LastFmScrobbler from "$lib/components/LastFmScrobbler/LastFmScrobbler.svelte";
   import NowPlaying from "$lib/components/NowPlaying/NowPlaying.svelte";
+  import { fileNowPlayingState, nowPlayingControls, nowPlayingState } from "$lib/components/NowPlaying/NowPlayingBridge";
   import SeekBar from "$lib/components/SeekBar/SeekBar.svelte";
   import TrackTable from "$lib/components/TrackTable/TrackTable.svelte";
-  import { toTrackRows } from "$lib/components/TrackTable/trackRows";
+  import { toFileTrackRows, toTrackRows } from "$lib/components/TrackTable/trackRows";
   import TransportControls from "$lib/components/TransportControls/TransportControls.svelte";
   import Visualiser from "$lib/components/Visualiser/Visualiser.svelte";
   import { CDPlayer } from "$lib/playback/CDPlayer.svelte";
+  import { FilePlayer } from "$lib/playback/FilePlayer.svelte";
   import { isDiscReady, isPlaybackActive } from "$lib/playback/playerMachine";
+  import { WebAudioHandler } from "$lib/playback/WebAudioHandler";
+  import { notifications } from "$lib/notifications/notifications.svelte";
   import { openSettingsWindow } from "$lib/settings/openSettingsWindow";
   import { settings } from "$lib/settings/settings.svelte";
   import type { VisualiserTrackInfo } from "$lib/visualisers/types";
@@ -24,7 +29,48 @@
   import { localStorageNumberStore, tauriWindowHeightControl } from "$lib/window/tauriWindowHeightControl";
   import { watchWindowFullscreen } from "$lib/window/watchWindowFullscreen";
 
-  const player = new CDPlayer();
+  /** One audio output (and one visualiser tap) shared by both players; whichever starts a run takes it over. */
+  const handler = new WebAudioHandler({ fadeSeconds: () => (settings.fadeEnabled ? 0.1 : 0) });
+
+  /** Which source the page is showing and controlling. Changes when either player starts. */
+  let mode = $state<"cd" | "files">("cd");
+
+  const player = new CDPlayer({
+    handler,
+    onBeforePlay: () => {
+      filePlayer.release();
+      mode = "cd";
+    },
+  });
+  const filePlayer = new FilePlayer({
+    handler,
+    onBeforePlay: () => {
+      player.release();
+      mode = "files";
+    },
+    // A file that can't be played shouldn't interrupt the rest of the playlist, so it is a toast, not a banner.
+    onProblem: (problem) => notifications.notify(problem),
+  });
+
+  const filesMode = $derived(mode === "files");
+  /** The player the transport, seek bar, visualiser and media keys act on. */
+  const active = $derived(filesMode ? filePlayer : player);
+
+  function backToDisc() {
+    filePlayer.stop();
+    mode = "cd";
+  }
+
+  /** Plays the row that was chosen in the track table, whichever source it lists. */
+  const playRow = (key: string) => {
+    if (filesMode) {
+      const fileTrack = filePlayer.tracks.find(({ id }) => id === key);
+      if (fileTrack) void filePlayer.playFrom(fileTrack);
+      return;
+    }
+    const discTrack = player.tracks.find(({ number }) => String(number) === key);
+    if (discTrack) void player.playFrom(discTrack);
+  };
 
   /** Fullscreen with only the visualiser showing; Escape leaves it. */
   let visualiserOnly = $state(false);
@@ -46,7 +92,7 @@
 
   // A disc change or eject closes the viewer, so the next disc doesn't open already full size.
   $effect(() => {
-    if (!player.metadata?.coverUrl) isCoverOpen = false;
+    if (filesMode || !player.metadata?.coverUrl) isCoverOpen = false;
   });
 
   onMount(() => {
@@ -67,23 +113,44 @@
 
     return () => {
       player.destroy();
+      filePlayer.destroy();
       void stopWatchingFullscreen.then((stop) => stop());
       void stopWatchingUserHeight.then((stop) => stop());
     };
   });
 
   const hasPlayableTrack = $derived(player.tracks.some(({ is_audio }) => is_audio));
-  const isActive = $derived(isPlaybackActive(player.status));
-  /** Audio is moving (or about to), as opposed to stopped or paused. */
-  const isSounding = $derived(["loading", "playing", "buffering"].includes(player.status));
+  const isActive = $derived(filesMode ? filePlayer.isActive : isPlaybackActive(player.status));
+  /** Audio is moving (or about to), as opposed to stopped or paused. Both players use these status names. */
+  const isSounding = $derived(["loading", "playing", "buffering"].includes(active.status));
   const rows = $derived(
-    toTrackRows(
-      player.tracks,
-      (track) => player.trackTitle(track),
-      (track) => player.trackArtist(track),
-    ),
+    filesMode
+      ? toFileTrackRows(filePlayer.tracks)
+      : toTrackRows(
+          player.tracks,
+          (track) => player.trackTitle(track),
+          (track) => player.trackArtist(track),
+        ),
+  );
+  /** Number of the playing row in `rows`, from 1. */
+  const currentRowNumber = $derived(
+    filesMode ? (filePlayer.currentIndex === null ? null : filePlayer.currentIndex + 1) : player.trackNumber,
+  );
+  const canNext = $derived(
+    filesMode
+      ? filePlayer.currentIndex !== null && filePlayer.currentIndex < filePlayer.tracks.length - 1
+      : player.queue.length > 1,
   );
   const visualiserTrack = $derived.by((): VisualiserTrackInfo | null => {
+    if (filesMode) {
+      if (!filePlayer.current || filePlayer.currentIndex === null) return null;
+      return {
+        number: filePlayer.currentIndex + 1,
+        title: filePlayer.current.title,
+        artist: "",
+        durationSeconds: filePlayer.durationSeconds,
+      };
+    }
     const track = player.tracks.find(({ number }) => number === player.trackNumber);
     if (!track) return null;
     return {
@@ -95,8 +162,23 @@
   });
   /** True while the disc is being read or looked up. */
   const isReadingDisc = $derived(player.status === "loadingMetadata" || (player.status === "noDisc" && player.readingDisc));
-  /** There is nothing to play yet: no disc, or still reading it. The playback controls are disabled. */
-  const isDiscUnavailable = $derived(player.status === "noDisc" || player.status === "loadingMetadata");
+  /** There is nothing to show yet: no disc, or still reading it (never the case while showing files). */
+  const isNothingToShow = $derived(!filesMode && (player.status === "noDisc" || player.status === "loadingMetadata"));
+  /** The transport can't start anything: no playable disc track, or no files. */
+  const isTransportDisabled = $derived(
+    filesMode
+      ? filePlayer.tracks.length === 0
+      : isNothingToShow || !hasPlayableTrack || !isDiscReady(player.status),
+  );
+  /** What the system media keys do, acting on whichever player is showing when the key is pressed. */
+  const mediaKeyControls = nowPlayingControls({
+    resume: () => active.resume(),
+    pause: () => active.pause(),
+    previous: () => active.previous(),
+    next: () => active.next(),
+    seek: (seconds) => active.seek(seconds),
+    stop: () => active.stop(),
+  });
 
   // With no track list the window shrinks to fit the header, and grows back to the user's height when tracks arrive.
   const windowHeight = new AnimatedWindowHeight({
@@ -132,13 +214,15 @@
     const collapsedHeight = Math.max(COLLAPSED_PAGE_HEIGHT, contentHeight);
     // This is also the window's minimum, so it can't be dragged smaller than the header, collapsed or not.
     windowHeight.setMinimumHeight(collapsedHeight);
-    const action = isDiscUnavailable ? windowHeight.collapseTo(collapsedHeight) : windowHeight.restore();
+    const action = isNothingToShow ? windowHeight.collapseTo(collapsedHeight) : windowHeight.restore();
     action.catch((error) => {
       console.error(JSON.stringify({ message: "Could not resize the window", error: String(error) }));
     });
   });
   const albumPlaceholder = $derived(
-    player.status === "loadingMetadata"
+    filesMode
+      ? (filePlayer.current?.title ?? "Audio files")
+      : player.status === "loadingMetadata"
       ? "Looking up album…"
       : player.status === "noDisc"
         ? isReadingDisc
@@ -148,9 +232,20 @@
   );
 </script>
 
-<NowPlaying {player} />
+<NowPlaying
+  nowPlaying={filesMode ? fileNowPlayingState(filePlayer) : nowPlayingState(player)}
+  controls={mediaKeyControls}
+/>
+<!-- Dropped files have no artist, which Last.fm needs, so only the disc is scrobbled. -->
 <LastFmScrobbler {player} />
-<CoverTheme coverUrl={player.metadata?.coverUrl} reading={isReadingDisc} />
+<CoverTheme coverUrl={filesMode ? undefined : player.metadata?.coverUrl} reading={!filesMode && isReadingDisc} />
+<FileDrop onfiles={(paths) => filePlayer.enqueue(paths)} />
+<NotificationArea
+  items={notifications.items}
+  onDismiss={(id) => notifications.dismiss(id)}
+  position="bottom-right"
+  label="Notifications"
+/>
 
 <svelte:window onkeydown={(event) => visualiserOnly && event.key === "Escape" && setVisualiserOnly(false)} />
 
@@ -159,7 +254,7 @@
   {#key settings.visualiserId}
     <Visualiser
       visualiserId={settings.visualiserId}
-      readWaveform={(target) => player.readWaveform(target)}
+      readWaveform={(target) => active.readWaveform(target)}
       playing={isSounding}
       track={visualiserTrack}
     />
@@ -178,12 +273,12 @@
   <header>
     <!-- Always shown, so the header keeps its size when there is no disc. A new disc wipes over the old one. -->
     <div class="album">
-      {#key player.metadata?.discId ?? "none"}
+      {#key filesMode ? "files" : (player.metadata?.discId ?? "none")}
         <div class="album-slot" transition:wipe>
           <AlbumHeader
-            metadata={player.metadata}
+            metadata={filesMode ? null : player.metadata}
             message={albumPlaceholder}
-            busy={isReadingDisc}
+            busy={!filesMode && isReadingDisc}
             coverOpen={isCoverOpen}
             onopencover={() => setCoverOpen(true)}
           />
@@ -193,20 +288,23 @@
     <div class="controls">
       <TransportControls
         playing={isSounding}
-        disabled={isDiscUnavailable || !hasPlayableTrack || !isDiscReady(player.status)}
+        disabled={isTransportDisabled}
         canPrevious={isActive}
-        canNext={player.queue.length > 1}
-        onprevious={() => void player.previous()}
-        onplaypause={() => void player.playPause()}
-        onnext={() => void player.next()}
+        {canNext}
+        onprevious={() => void active.previous()}
+        onplaypause={() => void active.playPause()}
+        onnext={() => void active.next()}
       />
       <SeekBar
-        positionSeconds={player.positionSeconds}
-        durationSeconds={player.durationSeconds}
-        disabled={isDiscUnavailable || !isActive}
-        onseek={(seconds) => void player.seek(seconds)}
+        positionSeconds={active.positionSeconds}
+        durationSeconds={active.durationSeconds}
+        disabled={isNothingToShow || !isActive}
+        onseek={(seconds) => void active.seek(seconds)}
       />
       <div class="window-buttons">
+        {#if filesMode}
+          <Button variant="ghost" icon="disc" iconPosition="only" aria-label="Back to disc" onclick={backToDisc} />
+        {/if}
         <Button
           variant="ghost"
           icon="gear"
@@ -225,30 +323,25 @@
     </div>
   </header>
 
-  {#if player.interrupted}
+  {#if active.interrupted}
     <InfoBox variant="warning" title="Audio output was interrupted">Press Play to continue.</InfoBox>
   {/if}
-  {#if player.unreadableSectors > 0}
+  {#if !filesMode && player.unreadableSectors > 0}
     <InfoBox variant="warning" title="Unreadable sectors">
       {player.unreadableSectors} sector{player.unreadableSectors === 1 ? "" : "s"} played as silence. The disc may
       be scratched or dirty.
     </InfoBox>
   {/if}
-  {#if player.error}
+  {#if !filesMode && player.error}
     <InfoBox variant="error" title="Playback stopped">{player.error}</InfoBox>
   {/if}
 
-  {#if !isDiscUnavailable}
-    {#if !player.metadata && player.metadataError}
+  {#if !isNothingToShow}
+    {#if !filesMode && !player.metadata && player.metadataError}
       <p class="hint">Track names unavailable: {player.metadataError}.</p>
     {/if}
     <section>
-      <TrackTable
-        {rows}
-        currentTrackNumber={player.trackNumber}
-        playing={isSounding}
-        onplay={(track) => void player.playFrom(track)}
-      />
+      <TrackTable {rows} currentTrackNumber={currentRowNumber} playing={isSounding} onplay={({ key }) => playRow(key)} />
     </section>
   {/if}
 </main>

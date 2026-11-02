@@ -37,6 +37,8 @@ interface Options {
   discCheckIntervalMs?: number;
   /** Seconds of audio to hold back before a run starts sounding; defaults to `PREBUFFER_SECONDS`. */
   prebufferSeconds?: number;
+  /** Called when a run is about to start, so another player sharing the handler can let go of it. */
+  onBeforePlay?: () => void;
 }
 
 /** Fade length for play and pause when the setting is on. */
@@ -139,6 +141,7 @@ export class CDPlayer {
   /** True from the start of a run until `#prebufferSeconds` are buffered; the handler is held silent meanwhile. */
   #prebuffering = false;
   #prebufferSeconds: number;
+  #onBeforePlay: () => void;
 
   constructor({
     handler = new WebAudioHandler({ fadeSeconds: () => (settings.fadeEnabled ? FADE_SECONDS : 0) }),
@@ -150,8 +153,10 @@ export class CDPlayer {
     isMetadataLookupEnabled = () => settings.musicBrainzEnabled,
     isAutoplayEnabled = () => settings.autoplayEnabled,
     discCheckIntervalMs,
+    onBeforePlay = () => {},
   }: Options = {}) {
     this.#handler = handler;
+    this.#onBeforePlay = onBeforePlay;
     this.#prebufferSeconds = prebufferSeconds;
     this.#fetchChunk = fetchChunk;
     this.#baseUrl = baseUrl;
@@ -167,12 +172,28 @@ export class CDPlayer {
       onChange: (toc) => this.#handleDiscChange(toc),
     });
 
+    this.#claimHandler();
+  }
+
+  /**
+   * Points the handler's callbacks at this player. The handler may be shared with the file player, so
+   * whichever player starts a run claims it.
+   */
+  #claimHandler(): void {
     // Segments can run dry mid-queue on a slow read: that is buffering, and only the end once everything is fetched.
     this.#handler.onEnded = () => {
       if (!this.#fetching) return this.stop();
       this.#dispatch({ type: "underrun" });
     };
     this.#handler.onInterruption = (interrupted) => this.#handleInterruption(interrupted);
+  }
+
+  /**
+   * Lets go of the shared handler because another player is taking it: forgets the queue and goes back to
+   * `ready`, but leaves the handler alone, since it now belongs to the other player.
+   */
+  release(): void {
+    if (this.#dispatch({ type: "stop" })) this.#teardownPlayback({ stopHandler: false });
   }
 
   /** Starts watching the drive for a disc. */
@@ -412,9 +433,9 @@ export class CDPlayer {
   }
 
   /** Stops the audio and forgets the queue, without changing `status` (the caller does that). */
-  #teardownPlayback(): void {
+  #teardownPlayback({ stopHandler = true } = {}): void {
     this.#runId++;
-    this.#handler.stop();
+    if (stopHandler) this.#handler.stop();
     this.#spans = [];
     this.#fetchIndex = 0;
     this.#fetching = false;
@@ -479,6 +500,8 @@ export class CDPlayer {
     // Not allowed until a disc is there and its metadata has settled.
     if (transition(this.status, { type: "play" }) === null) return Promise.resolve();
 
+    this.#onBeforePlay();
+    this.#claimHandler();
     this.#teardownPlayback();
     const runId = this.#runId;
     const startSector = startSectorForTime(first, timeSeconds);

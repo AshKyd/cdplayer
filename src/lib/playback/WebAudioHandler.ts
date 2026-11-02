@@ -1,7 +1,7 @@
 import { int16InterleavedToChannels } from "./pcm";
 
 /** CD sample rate. The context is created at this rate so the browser never resamples chunk by chunk. */
-const SAMPLE_RATE = 44100;
+export const SAMPLE_RATE = 44100;
 
 /** Small start delay so the first segment is scheduled in the future, not at a time already passed. */
 const START_DELAY_SECONDS = 0.05;
@@ -33,7 +33,7 @@ interface Segment {
 
 /**
  * Schedules PCM segments back to back on a Web Audio clock. It knows nothing about where the audio
- * comes from (CD sectors, MP3 files), so any source can feed it.
+ * comes from (CD sectors, audio files), so any source can feed it.
  *
  * Each segment starts at `baseTime + startFrame / sampleRate`. Frames are counted as integers rather
  * than summing `buffer.duration`, which would drift and open gaps between segments.
@@ -163,6 +163,20 @@ export class WebAudioHandler {
     const buffer = context.createBuffer(2, left.length, SAMPLE_RATE);
     buffer.copyToChannel(left as Float32Array<ArrayBuffer>, 0);
     buffer.copyToChannel(right as Float32Array<ArrayBuffer>, 1);
+    this.appendBuffer(buffer);
+  }
+
+  /**
+   * Queues decoded audio directly after whatever is already scheduled. For sources that decode themselves
+   * (files). The buffer must be at 44.1 kHz, because the timeline counts whole frames at that rate; any
+   * channel count is fine.
+   */
+  appendBuffer(buffer: AudioBuffer): void {
+    if (buffer.sampleRate !== SAMPLE_RATE) {
+      throw new Error(`appendBuffer needs ${SAMPLE_RATE} Hz audio, got ${buffer.sampleRate} Hz`);
+    }
+    if (buffer.length === 0) return;
+    const context = this.#getContext();
 
     // Start fresh, or re-anchor if playback caught up with the schedule (underrun).
     const nothingQueued = this.#segments.length === 0;

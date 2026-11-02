@@ -94,8 +94,8 @@ export class FakeAudioContext {
     this.setState("running");
   }
 
-  createBuffer(_channels: number, length: number) {
-    return { length, copyToChannel() {} };
+  createBuffer(_channels: number, length: number, sampleRate = 44100) {
+    return { length, sampleRate, copyToChannel() {} };
   }
 
   gains: FakeGain[] = [];

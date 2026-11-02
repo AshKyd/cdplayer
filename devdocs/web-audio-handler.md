@@ -12,6 +12,7 @@ Schedules PCM segments back to back on the Web Audio clock. It knows nothing abo
 
 - `new WebAudioHandler({ createContext, fadeSeconds })`: optional. `createContext` makes the `AudioContext`; tests pass a fake. `fadeSeconds` returns the fade length in seconds, read on each pause/resume; default 0 (no fade).
 - `appendSegment(pcm: ArrayBuffer)`: queues headerless 16-bit, 44.1 kHz, stereo PCM after what is already scheduled.
+- `appendBuffer(buffer: AudioBuffer)`: queues already-decoded 44.1 kHz audio (any channel count) after what is already scheduled. Throws for another sample rate. `appendSegment()` builds a buffer and calls this.
 - `leadSeconds`: audio scheduled but not yet played, on the context clock.
 - `playedSeconds`: time heard since the first segment, i.e. what has reached the speakers. Holds while suspended.
 - `latencySeconds`: output latency: `outputLatency`, or `baseLatency` if that is missing or zero, or 0.
@@ -22,7 +23,7 @@ Schedules PCM segments back to back on the Web Audio clock. It knows nothing abo
 - `suspend()` / `resume()`: pause and resume the `AudioContext`. Scheduled sources are kept. All sources play through one `GainNode`. With a fade, `suspend()` ramps the gain to 0, waits, then suspends (only if audio is playing; skipped if `resume()` or `stop()` came during the fade). `resume()` ramps the gain from 0 to 1.
 - `stop()`: stops and drops all sources, clears a requested pause and resets the clock.
 - `readWaveform(target)`: fills `target` with the latest output samples (bytes, 128 = silence) from an `AnalyserNode` placed after the gain (`WAVEFORM_SAMPLES` = 2048). Returns `false` before the first segment. Frozen while suspended.
-- `onEnded`: callback set by the owner. Called when no scheduled source is left.
+- `onEnded`: callback set by the owner. Called when no scheduled source is left. The handler is shared by `CDPlayer` and `FilePlayer`; whichever starts a run sets these callbacks.
 - `onInterruption(interrupted)`: callback set by the owner. `true` when the system stops the audio without being asked, `false` when it runs again.
 
 ## Behaviour
@@ -41,12 +42,12 @@ Schedules PCM segments back to back on the Web Audio clock. It knows nothing abo
 
 ## Limits
 
-- Stereo, 44.1 kHz input only.
+- 44.1 kHz input only. `appendSegment()` takes stereo PCM; `appendBuffer()` takes any channel count.
 - Conversion runs on the main thread.
 - `onEnded` also fires after an underrun. The owner decides if that is the real end.
 - Audio that is already playing can't be unplayed, so `dropAfter()` refuses if any of the audio to drop has started.
 - `skipTo()` can't go back to audio that has finished (its segment is gone), or to audio not yet appended. The owner restarts the source for those.
-- No volume control or analyser node.
+- No volume control (the gain is only for fades).
 - `outputLatency` may be missing in WebKit; `baseLatency` understates the delay on Bluetooth.
 - The context follows the system default output device. It is not re-pointed at a new device.
 - Interruption recovery is untested on real hardware.

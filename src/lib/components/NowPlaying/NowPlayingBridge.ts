@@ -1,4 +1,5 @@
 import type { CDPlayer } from "$lib/playback/CDPlayer.svelte";
+import type { FilePlayer } from "$lib/playback/FilePlayer.svelte";
 import { isPlaybackActive, type PlayerStatus } from "$lib/playback/playerMachine";
 import { createSilentAudio } from "./silentAudio";
 
@@ -170,8 +171,22 @@ export const nowPlayingState = (player: CDPlayer): NowPlayingState => {
   };
 };
 
-/** The media keys, wired to a player. */
-export const nowPlayingControls = (player: CDPlayer): NowPlayingControls => ({
+/** What `NowPlayingBridge.update()` needs, read from the file player. There are no tags yet, so no artist, album or cover. */
+export const fileNowPlayingState = (player: FilePlayer): NowPlayingState => ({
+  status: player.status === "idle" ? "ready" : player.status,
+  title: player.current?.title ?? "",
+  artist: "",
+  album: "",
+  coverUrl: null,
+  positionSeconds: player.positionSeconds,
+  durationSeconds: player.durationSeconds,
+  canNext: player.currentIndex !== null && player.currentIndex < player.tracks.length - 1,
+});
+
+/** The media keys, wired to a player: either one, since they share these methods. */
+export const nowPlayingControls = (
+  player: Pick<CDPlayer, "resume" | "pause" | "previous" | "next" | "seek" | "stop">,
+): NowPlayingControls => ({
   play: () => void player.resume(),
   pause: () => void player.pause(),
   previous: () => void player.previous(),

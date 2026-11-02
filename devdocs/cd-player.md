@@ -14,7 +14,7 @@ The player: finds the disc, looks up its track names ([musicbrainz.md](musicbrai
 
 ## API
 
-- `new CDPlayer({ handler, fetchChunk, baseUrl, loadToc, loadMetadata, isMetadataLookupEnabled, discCheckIntervalMs, prebufferSeconds })`: all optional. `prebufferSeconds` defaults to 5; the default handler fades by 100 ms when the `fadeEnabled` setting is on. `isMetadataLookupEnabled` defaults to the `musicBrainzEnabled` setting; when false the lookup is skipped and the disc is `ready` with no error. Tests pass a `WebAudioHandler` on a fake `AudioContext`, a fake chunk fetch, a fake drive (`loadToc`) and a fake lookup (`loadMetadata`). `baseUrl` is the `cd-track` protocol root, by default from `cdTrackBaseUrl()`.
+- `new CDPlayer({ handler, fetchChunk, baseUrl, loadToc, loadMetadata, isMetadataLookupEnabled, isAutoplayEnabled, discCheckIntervalMs, prebufferSeconds, onBeforePlay })`: all optional. `onBeforePlay` is called when a run starts, so the file player ([file-player.md](file-player.md)), which shares the handler, can let go of it. `prebufferSeconds` defaults to 5; the default handler fades by 100 ms when the `fadeEnabled` setting is on. `isMetadataLookupEnabled` defaults to the `musicBrainzEnabled` setting; when false the lookup is skipped and the disc is `ready` with no error. Tests pass a `WebAudioHandler` on a fake `AudioContext`, a fake chunk fetch, a fake drive (`loadToc`) and a fake lookup (`loadMetadata`). `baseUrl` is the `cd-track` protocol root, by default from `cdTrackBaseUrl()`.
 - `start()`: starts watching the drive for a disc. `destroy()`: stops watching and stops the audio. `checkDisc()`: looks at the drive now (does nothing while audio is active).
 - Disc state: `status`, `tracks` (the disc's tracks, empty with no disc), `metadata` (`DiscMetadata` or `null`), `metadataError`, `discError` (why there is no disc) and `readingDisc` (the drive is slow to report its TOC).
 - Playback state: `trackNumber`, `positionSeconds`, `durationSeconds` (length of the current track), `error`, `queue`, `unreadableSectors`, `interrupted`.
@@ -32,6 +32,7 @@ The player: finds the disc, looks up its track names ([musicbrainz.md](musicbrai
 - `next()`: skips to the next queued track. Instant if that track's start is already buffered.
 - `seek(seconds)`: moves within the current track and keeps the queue. Instant if that point is already buffered. A pause is kept.
 - `stop()` (back to `ready`, queue cleared), `pause()`, `resume()`, `togglePause()`.
+- `release()`: like `stop()` but leaves the handler alone, for when the file player takes it. A run sets the handler's `onEnded` and `onInterruption` callbacks when it starts.
 
 ## Behaviour
 
