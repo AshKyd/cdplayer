@@ -18,6 +18,8 @@
   import { notifications } from "$lib/notifications/notifications.svelte";
   import { openSettingsWindow } from "$lib/settings/openSettingsWindow";
   import { settings } from "$lib/settings/settings.svelte";
+  import { isInside, normalisePath } from "$lib/volumes/paths";
+  import { VolumeFilesLoader } from "$lib/volumes/VolumeFilesLoader.svelte";
   import type { VisualiserTrackInfo } from "$lib/visualisers/types";
   import CoverTheme from "$lib/components/CoverTheme/CoverTheme.svelte";
   import CoverViewer from "$lib/components/CoverViewer/CoverViewer.svelte";
@@ -50,6 +52,23 @@
     },
     // A file that can't be played shouldn't interrupt the rest of the playlist, so it is a toast, not a banner.
     onProblem: (problem) => notifications.notify(problem),
+  });
+
+  /** Plays data and MP3 CDs. An audio CD in the drive wins, and a disc of files never interrupts anything playing. */
+  const volumeLoader = new VolumeFilesLoader({
+    canLoad: () => player.status === "noDisc" && !player.readingDisc && !filePlayer.isActive,
+    onFiles: (paths) => {
+      filePlayer.clear();
+      mode = "files";
+      filePlayer.enqueue(paths, { play: settings.autoplayEnabled });
+    },
+    // The files can't be read any more, so the player goes back to the (empty) drive rather than failing on each one.
+    onRemoved: ({ mount_path }) => {
+      const mountPath = normalisePath(mount_path);
+      if (!filePlayer.tracks.some(({ path }) => isInside(normalisePath(path), mountPath))) return;
+      filePlayer.clear();
+      mode = "cd";
+    },
   });
 
   const filesMode = $derived(mode === "files");
@@ -97,6 +116,7 @@
 
   onMount(() => {
     player.start();
+    volumeLoader.start();
 
     // The OS can leave fullscreen without Escape reaching the page (green button, Ctrl+Cmd+F, another Space),
     // which would strand the visualiser alone in a normal window. Only a leave is acted on: entering is
@@ -112,6 +132,7 @@
     const stopWatchingUserHeight = windowHeight.watchUserHeight().catch(() => () => {});
 
     return () => {
+      volumeLoader.stop();
       player.destroy();
       filePlayer.destroy();
       void stopWatchingFullscreen.then((stop) => stop());
@@ -221,7 +242,7 @@
   });
   const albumPlaceholder = $derived(
     filesMode
-      ? (filePlayer.current?.title ?? "Audio files")
+      ? (filePlayer.current?.title ?? volumeLoader.loaded?.label ?? "Audio files")
       : player.status === "loadingMetadata"
       ? "Looking up album…"
       : player.status === "noDisc"

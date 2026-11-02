@@ -7,7 +7,7 @@ This document outlines the architecture for a cross-platform (macOS, Windows, Li
 
 The system is divided into a Rust backend managing hardware access and a Web frontend handling audio routing and UI, communicating via Tauri's custom protocol.
 
-**Design principle: keep it a JS app.** Rust only does what JS cannot: talk to the drive (read the TOC, read sectors, re-open the drive) and decode audio files ([file-decoder.md](file-decoder.md)). State, timing, polling, queueing and decisions live in JS. When a feature can be done in either, do it in JS. For example, disc insert/eject detection is a JS poll ([disc-watcher.md](disc-watcher.md)) over one thin Rust command, and the MusicBrainz disc ID and lookup are JS ([musicbrainz.md](musicbrainz.md)).
+**Design principle: keep it a JS app.** Rust only does what JS cannot: talk to the drive (read the TOC, read sectors, re-open the drive), decode audio files ([file-decoder.md](file-decoder.md)), and find mounted discs ([optical-volumes.md](optical-volumes.md)). State, timing, polling, queueing and decisions live in JS. When a feature can be done in either, do it in JS. For example, disc insert/eject detection is a JS poll ([disc-watcher.md](disc-watcher.md)) over one thin Rust command, and the MusicBrainz disc ID and lookup are JS ([musicbrainz.md](musicbrainz.md)).
 
 ```text
 [ Physical Audio CD ]
@@ -59,6 +59,7 @@ The frontend handles playback, gapless transitions, and visualizations, treating
 * **Last.fm:** The `LastFmScrobbler` component ([last-fm.md](last-fm.md)) sends "now playing" and scrobbles from the player's state, using the login in settings. No Rust.
 * **Audio scheduling:** The `WebAudioHandler` class ([web-audio-handler.md](web-audio-handler.md)) appends PCM segments to the playback buffer and owns the `AudioContext`.
 * **Source / engine split:** A source reads or decodes audio and feeds it to `WebAudioHandler`: `CDPlayer` for audio CDs, `FilePlayer` for audio files. `WebAudioHandler` knows nothing about CDs, sectors or files, so the Web Audio code and the source code must stay separate. Both sources share one handler, so one `AudioContext` and one visualiser tap. Only one plays at a time.
+* **Data and MP3 CDs:** Rust lists the optical discs the OS has mounted as folders (`list_optical_volumes`, [optical-volumes.md](optical-volumes.md)) and lets the frontend read them. The `VolumeFilesLoader` ([volume-watcher.md](volume-watcher.md)) polls that list, finds the disc's playlist or audio files in JS, and gives them to the `FilePlayer`.
 * **Audio files:** The `FilePlayer` class ([file-player.md](file-player.md)) plays files as a playlist. Rust opens and decodes them with symphonia and serves 44.1 kHz stereo PCM over a `file-track` protocol ([file-decoder.md](file-decoder.md)); this is the one place decoding is not JS, because WebKit's own decoders fail on some formats and JS/WASM decoding blocked the main thread. The `FileDrop` component ([file-drop.md](file-drop.md)) takes files dropped on the window.
 
 ### 3.3. Build tooling
