@@ -1,19 +1,11 @@
 <script lang="ts">
-  import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
   import { openUrl } from "@tauri-apps/plugin-opener";
-  import { onMount, tick } from "svelte";
   import { ControlGroup, ControlItemExpanded, Settings, type SettingsSection } from "svelte-akui";
   import LastFmSettings from "$lib/components/LastFmSettings/LastFmSettings.svelte";
   import VisualiserSettings from "$lib/components/VisualiserSettings/VisualiserSettings.svelte";
   import { settings } from "$lib/settings/settings.svelte";
 
   const MUSICBRAINZ_URL = "https://musicbrainz.org";
-
-  // The window is created hidden (see openSettingsWindow); reveal it once the content is in the DOM.
-  // Not requestAnimationFrame: WebKit pauses it while the window is hidden, so it would never fire.
-  onMount(() => {
-    void tick().then(() => getCurrentWebviewWindow().show());
-  });
 
   const sections: SettingsSection[] = [
     { id: "general", label: "General", icon: "gear", children: general },

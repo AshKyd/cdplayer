@@ -3,6 +3,7 @@
   import { UIRoot } from "svelte-akui";
   import CoverAccent from "$lib/components/CoverAccent/CoverAccent.svelte";
   import NativeWindowTheme from "$lib/components/NativeWindowTheme/NativeWindowTheme.svelte";
+  import RevealWindow from "$lib/components/RevealWindow/RevealWindow.svelte";
 
   let { children }: { children: Snippet } = $props();
 </script>
@@ -11,6 +12,8 @@
   <NativeWindowTheme />
   <CoverAccent />
   {@render children()}
+  <!-- Last, so the window is shown only once the theme and the page are in place. -->
+  <RevealWindow />
 </UIRoot>
 
 <style>

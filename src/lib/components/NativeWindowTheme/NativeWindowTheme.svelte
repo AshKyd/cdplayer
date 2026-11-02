@@ -1,7 +1,12 @@
 <script lang="ts">
   import { getThemeStore } from "svelte-akui";
+  import { currentSystemScheme } from "$lib/theme/systemScheme";
 
   const themeStore = getThemeStore();
+
+  // akui reads the OS scheme in an effect, after the first paint, so under "System" a dark OS would show light
+  // first. This runs while the page is first built, before `UIRoot` sets its `data-theme`, so the first paint is right.
+  themeStore.systemScheme = currentSystemScheme();
 
   // The macOS title bar is drawn from the webview's CSS `color-scheme`, not from the window API (`setTheme` is
   // reported as applied but the title bar ignores it). A theme picked in the app is pinned; under "System" both
