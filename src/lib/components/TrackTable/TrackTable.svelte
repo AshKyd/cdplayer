@@ -123,14 +123,9 @@
     place-items: center;
   }
 
-  /* A faint wash of the text colour, so the frosted section behind the table shows through without going muddy. */
-  .tracks {
-    --akui-details-head-bg: color-mix(in srgb, var(--akui-fg) 10%, transparent);
-  }
-
-  /* `showLines={false}` clears the lines between rows and columns, but not the line under the header. */
+  /* The column names are obvious, and nothing sorts, so the header (and the narrow layout's sort menu) is hidden. */
   .tracks :global(.akui-details-head) {
-    border-bottom: none;
+    display: none;
   }
 
   .tracks :global(.akui-details-row.current) {
