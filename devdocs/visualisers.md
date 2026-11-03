@@ -7,7 +7,7 @@
 - `src/lib/components/Visualiser/Visualiser.svelte`: creates the butterchurn renderer on its canvas, feeds it samples at 30 fps, loads the chosen preset, shows the track title.
 - `src/lib/visualisers/visualiserCatalogue.ts`: `PRESET_NAMES` (the presets on offer, in order), `RANDOM_VISUALISER_ID`, `DEFAULT_VISUALISER_ID`, `isVisualiserId()`. Names only, so it is safe to import anywhere. A saved choice that is not in the list falls back to the default.
 - `src/lib/visualisers/butterchurnPresets.ts`: `listPresetNames()` (just `PRESET_NAMES`, no pack load) and `loadButterchurnPreset(name)`, which returns one of ours or imports `butterchurn-presets` (the large base pack) on first use.
-- `src/lib/visualisers/customPresets/`: presets written for this app (`CUSTOM_PRESETS`, by display name). `relativeDimensions.ts` is "Relative dimensions": emitter A is 192 shape instances along a path that eases between spiral, circle and star while rotating; emitter B is two rings of evenly spaced emitters that follow the treble drawn in the `warp` shader (see below). Hues are complementary and cycle the rainbow every 20 s, drawn into a zooming, twisting feedback loop.
+- `src/lib/visualisers/customPresets/`: presets written for this app (`CUSTOM_PRESETS`, by display name). Each preset has its own folder; `unusedParts.ts` holds the switched-off shapes and waves they share. `relativeDimensions/` is "Relative dimensions" (`frameEquations.ts`, `pathEquations.ts`, `warpShader.ts`, assembled in `relativeDimensions.ts`). Sizes are relative to the longer canvas side, and `q7` / `q8` keep shapes round on any canvas size. Emitter A is 192 shape instances along a path that eases between spiral, circle and star while rotating; emitter B is two rings of evenly spaced emitters that follow the treble drawn in the `warp` shader (see below). Hues are complementary and cycle the rainbow every 20 s, drawn into a zooming, twisting feedback loop.
 - `src/lib/visualisers/presetTweaks.ts`: `PRESET_TWEAKS`, literal text edits to individual presets (for example to tame one that is too bright), applied to a copy when the preset loads. An edit that no longer matches logs a warning.
 - `src/lib/visualisers/butterchurn.d.ts`: types for the two packages, which ship none.
 - `src/lib/visualisers/types.ts`: `VisualiserTrackInfo`.
@@ -25,7 +25,7 @@
 
 ## Adding a visualiser
 
-Add the name to `PRESET_NAMES`. For a pack preset, spell it exactly as the pack does (`presetNames.test.ts` checks against the real pack). For one of ours, also export a preset object from `customPresets/` and add it to `CUSTOM_PRESETS`.
+Add the name to `PRESET_NAMES`. For a pack preset, spell it exactly as the pack does (`presetNames.test.ts` checks against the real pack). For one of ours, also export a preset object from its own folder in `customPresets/` and add it to `CUSTOM_PRESETS`.
 
 ## Relative dimensions: the emitter rings in the warp shader
 
@@ -34,7 +34,7 @@ Add the name to `PRESET_NAMES`. For a pack preset, spell it exactly as the pack 
 - Two rings: the outer has 24 emitters and turns steadily counterclockwise on screen, so its dots trace lines. The inner has 16 and jumps to a new random angle twenty times a second, so its dots land all round and the zoom spreads each into a star-like burst. Their distance from the centre swings on a sine wave (outer, 0.34 +- 0.06) and a cosine wave (inner, 0.20 +- 0.05), so the emitters wander in and out as they turn.
 - An emitter emits one point at a time: a dot (radius 0.0075 of the screen height) where it is now, every frame. The feedback zoom and twist carry the earlier dots outward, which makes the trail. Nothing depends on earlier frames inside the shader, so there is no state.
 - The emitters of a ring are identical, turned by whole sectors, so the shader turns each pixel back into the nearest emitter's sector and measures from that one.
-- `q7`/`q8` (`aspecty`/`aspectx`) make offsets from the centre round on screen, in units of the shorter side. The shader relies on that for the rotation.
+- `q7`/`q8` (longer side over `pixelsx`/`pixelsy`, not `aspectx`/`aspecty`, which butterchurn leaves stale after a resize) make offsets from the centre round on screen, in units of the longer side. Dot radii use the same unit. The shader relies on that for the rotation.
 - Tried and removed: a mids row (lit nearly all the time), and streams of 16 particles in flight per emitter.
 - GLSL is not compiled by the tests. Check it in Storybook (the console shows compile errors).
 

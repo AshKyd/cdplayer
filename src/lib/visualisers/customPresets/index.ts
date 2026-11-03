@@ -1,5 +1,5 @@
 import type { ButterchurnPreset } from "../butterchurnPresets";
-import { RELATIVE_DIMENSIONS } from "./relativeDimensions";
+import { RELATIVE_DIMENSIONS } from "./relativeDimensions/relativeDimensions";
 
 /** Presets written for this app, by the name shown in the picker. */
 export const CUSTOM_PRESETS: Record<string, ButterchurnPreset> = {
