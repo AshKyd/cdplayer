@@ -1,15 +1,13 @@
 <script lang="ts">
-  import { Button, InfoBox, NotificationArea } from "svelte-akui";
+  import { InfoBox, NotificationArea } from "svelte-akui";
   import { onMount } from "svelte";
-  import AlbumHeader from "$lib/components/AlbumHeader/AlbumHeader.svelte";
+  import AppControls from "$lib/components/AppControls/AppControls.svelte";
   import FileDrop from "$lib/components/FileDrop/FileDrop.svelte";
   import LastFmScrobbler from "$lib/components/LastFmScrobbler/LastFmScrobbler.svelte";
   import NowPlaying from "$lib/components/NowPlaying/NowPlaying.svelte";
   import { fileNowPlayingState, nowPlayingControls, nowPlayingState } from "$lib/components/NowPlaying/NowPlayingBridge";
-  import SeekBar from "$lib/components/SeekBar/SeekBar.svelte";
   import TrackTable from "$lib/components/TrackTable/TrackTable.svelte";
   import { toFileTrackRows, toTrackRows } from "$lib/components/TrackTable/trackRows";
-  import TransportControls from "$lib/components/TransportControls/TransportControls.svelte";
   import Visualiser from "$lib/components/Visualiser/Visualiser.svelte";
   import { CDPlayer } from "$lib/playback/CDPlayer.svelte";
   import { FilePlayer } from "$lib/playback/FilePlayer.svelte";
@@ -23,12 +21,9 @@
   import type { VisualiserTrackInfo } from "$lib/visualisers/types";
   import CoverTheme from "$lib/components/CoverTheme/CoverTheme.svelte";
   import CoverViewer from "$lib/components/CoverViewer/CoverViewer.svelte";
-  import { wipe } from "$lib/transitions/wipe";
+  import { riseFade } from "$lib/transitions/riseFade";
   import { withViewTransition } from "$lib/transitions/withViewTransition";
-  import { AnimatedWindowHeight } from "$lib/window/AnimatedWindowHeight";
-  import { COLLAPSED_PAGE_HEIGHT, DEFAULT_EXPANDED_WINDOW_HEIGHT, DEFAULT_WINDOW_HEIGHT_OFFSET } from "$lib/window/windowHeights";
   import { setWindowFullscreen } from "$lib/window/setWindowFullscreen";
-  import { localStorageNumberStore, tauriWindowHeightControl } from "$lib/window/tauriWindowHeightControl";
   import { watchWindowFullscreen } from "$lib/window/watchWindowFullscreen";
 
   /** One audio output (and one visualiser tap) shared by both players; whichever starts a run takes it over. */
@@ -41,6 +36,12 @@
     handler,
     onBeforePlay: () => {
       filePlayer.release();
+      mode = "cd";
+    },
+    // Putting an audio disc in takes over from files, as ejecting an MP3 CD does.
+    onDiscChange: (toc) => {
+      if (!toc || mode !== "files") return;
+      filePlayer.stop();
       mode = "cd";
     },
   });
@@ -75,11 +76,6 @@
   /** The player the transport, seek bar, visualiser and media keys act on. */
   const active = $derived(filesMode ? filePlayer : player);
 
-  function backToDisc() {
-    filePlayer.stop();
-    mode = "cd";
-  }
-
   /** Plays the row that was chosen in the track table, whichever source it lists. */
   const playRow = (key: string) => {
     if (filesMode) {
@@ -102,6 +98,9 @@
       if (enabled) visualiserOnly = false;
     });
   }
+
+  /** The track list is shown. Hiding it leaves the visualiser behind the controls. */
+  let playlistVisible = $state(true);
 
   /** The cover is shown full size. */
   let isCoverOpen = $state(false);
@@ -128,15 +127,11 @@
       return () => {};
     });
 
-    // The app opens collapsed, so the height the user gives the expanded window is kept for the next launch.
-    const stopWatchingUserHeight = windowHeight.watchUserHeight().catch(() => () => {});
-
     return () => {
       volumeLoader.stop();
       player.destroy();
       filePlayer.destroy();
       void stopWatchingFullscreen.then((stop) => stop());
-      void stopWatchingUserHeight.then((stop) => stop());
     };
   });
 
@@ -201,45 +196,6 @@
     stop: () => active.stop(),
   });
 
-  // With no track list the window shrinks to fit the header, and grows back to the user's height when tracks arrive.
-  const windowHeight = new AnimatedWindowHeight({
-    control: tauriWindowHeightControl(),
-    offsetStore: localStorageNumberStore("cdplayer.windowHeightOffset"),
-    initialOffset: DEFAULT_WINDOW_HEIGHT_OFFSET,
-    expandedHeightStore: localStorageNumberStore("cdplayer.expandedWindowHeight"),
-    defaultExpandedHeight: DEFAULT_EXPANDED_WINDOW_HEIGHT,
-  });
-  let mainElement: HTMLElement;
-
-  /** Height the page needs above the track list: everything but the track section, plus the page's bottom padding. */
-  let contentHeight = $state(0);
-
-  const measureContentHeight = (): number => {
-    const [lowestChrome] = [...mainElement.children].filter((child) => child.tagName !== "SECTION").reverse();
-    const bottomPadding = Number.parseFloat(getComputedStyle(mainElement).paddingBottom) || 0;
-    return Math.ceil((lowestChrome?.getBoundingClientRect().bottom ?? 0) + bottomPadding);
-  };
-
-  // The header's size changes after the first paint (text fitting, wrapping at narrow widths), so keep measuring it.
-  onMount(() => {
-    const observer = new ResizeObserver(() => (contentHeight = measureContentHeight()));
-    [...mainElement.children].filter((child) => child.tagName !== "SECTION").forEach((child) => observer.observe(child));
-    contentHeight = measureContentHeight();
-    return () => observer.disconnect();
-  });
-
-  $effect(() => {
-    // Fullscreen is entered and left asynchronously, so leave the size alone around it.
-    if (visualiserOnly) return;
-    // Known up front, so the first collapse doesn't wait for a measurement; the measured height only ever adds to it.
-    const collapsedHeight = Math.max(COLLAPSED_PAGE_HEIGHT, contentHeight);
-    // This is also the window's minimum, so it can't be dragged smaller than the header, collapsed or not.
-    windowHeight.setMinimumHeight(collapsedHeight);
-    const action = isNothingToShow ? windowHeight.collapseTo(collapsedHeight) : windowHeight.restore();
-    action.catch((error) => {
-      console.error(JSON.stringify({ message: "Could not resize the window", error: String(error) }));
-    });
-  });
   const albumPlaceholder = $derived(
     filesMode
       ? (filePlayer.current?.title ?? volumeLoader.loaded?.label ?? "Audio files")
@@ -290,60 +246,7 @@
   />
 {/if}
 
-<main class:hidden={visualiserOnly} bind:this={mainElement}>
-  <header>
-    <!-- Always shown, so the header keeps its size when there is no disc. A new disc wipes over the old one. -->
-    <div class="album">
-      {#key filesMode ? "files" : (player.metadata?.discId ?? "none")}
-        <div class="album-slot" transition:wipe>
-          <AlbumHeader
-            metadata={filesMode ? null : player.metadata}
-            message={albumPlaceholder}
-            busy={!filesMode && isReadingDisc}
-            coverOpen={isCoverOpen}
-            onopencover={() => setCoverOpen(true)}
-          />
-        </div>
-      {/key}
-    </div>
-    <div class="controls">
-      <TransportControls
-        playing={isSounding}
-        disabled={isTransportDisabled}
-        canPrevious={isActive}
-        {canNext}
-        onprevious={() => void active.previous()}
-        onplaypause={() => void active.playPause()}
-        onnext={() => void active.next()}
-      />
-      <SeekBar
-        positionSeconds={active.positionSeconds}
-        durationSeconds={active.durationSeconds}
-        disabled={isNothingToShow || !isActive}
-        onseek={(seconds) => void active.seek(seconds)}
-      />
-      <div class="window-buttons">
-        {#if filesMode}
-          <Button variant="ghost" icon="disc" iconPosition="only" aria-label="Back to disc" onclick={backToDisc} />
-        {/if}
-        <Button
-          variant="ghost"
-          icon="gear"
-          iconPosition="only"
-          aria-label="Settings"
-          onclick={() => void openSettingsWindow()}
-        />
-        <Button
-          variant="ghost"
-          icon="fullscreen"
-          iconPosition="only"
-          aria-label="Fullscreen visualiser"
-          onclick={() => setVisualiserOnly(true)}
-        />
-      </div>
-    </div>
-  </header>
-
+<main class:hidden={visualiserOnly}>
   {#if active.interrupted}
     <InfoBox variant="warning" title="Audio output was interrupted">Press Play to continue.</InfoBox>
   {/if}
@@ -357,14 +260,40 @@
     <InfoBox variant="error" title="Playback stopped">{player.error}</InfoBox>
   {/if}
 
-  {#if !isNothingToShow}
+  {#if !isNothingToShow && playlistVisible}
     {#if !filesMode && !player.metadata && player.metadataError}
       <p class="hint">Track names unavailable: {player.metadataError}.</p>
     {/if}
-    <section>
+    <section transition:riseFade>
       <TrackTable {rows} currentTrackNumber={currentRowNumber} playing={isSounding} onplay={({ key }) => playRow(key)} />
     </section>
   {/if}
+
+  <!-- Below the playlist, so it stays at the bottom edge of the window. -->
+  <div class="controls-bar">
+  <AppControls
+    metadata={filesMode ? null : player.metadata}
+    message={albumPlaceholder}
+    busy={!filesMode && isReadingDisc}
+    coverOpen={isCoverOpen}
+    coverless={filesMode}
+    playing={isSounding}
+    transportDisabled={isTransportDisabled}
+    canPrevious={isActive}
+    {canNext}
+    positionSeconds={active.positionSeconds}
+    durationSeconds={active.durationSeconds}
+    seekDisabled={isNothingToShow || !isActive}
+    bind:playlistVisible
+    onopencover={() => setCoverOpen(true)}
+    onprevious={() => void active.previous()}
+    onplaypause={() => void active.playPause()}
+    onnext={() => void active.next()}
+    onseek={(seconds) => void active.seek(seconds)}
+    onsettings={() => void openSettingsWindow()}
+    onfullscreen={() => setVisualiserOnly(true)}
+  />
+  </div>
 </main>
 
 <style>
@@ -374,63 +303,27 @@
     z-index: 1;
     display: flex;
     flex-direction: column;
+    /* Keeps the controls on the bottom edge when there is no track list. */
+    justify-content: flex-end;
     gap: 0.75rem;
     height: 100vh;
-    padding: 0.75rem 1rem 1rem;
+    /* No bottom padding: the controls bar runs to the window's bottom edge. */
+    padding: 0.75rem 1rem 0;
+  }
+
+  /* The bottom of the window is frosted glass, edge to edge, with a faint line along its top. */
+  .controls-bar {
+    /* Cancels main's side padding so the bar spans the window; its own padding keeps the controls in line with the playlist. */
+    margin-inline: -1rem;
+    padding-inline: 1rem;
+    background: color-mix(in srgb, var(--akui-bg) 40%, transparent);
+    backdrop-filter: blur(12px);
+    border-top: 1px solid color-mix(in srgb, var(--akui-fg) 10%, transparent);
   }
 
   /* Visualiser-only mode: hide all page chrome, keeping the player mounted so playback continues. */
   main.hidden {
     display: none;
-  }
-
-  header {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 1rem 1.5rem;
-    align-items: center;
-    padding-block: 1rem;
-  }
-
-  /* Fixed width so the controls don't shift between discs; longer text wraps to two lines, then scales down to fit. */
-  .album {
-    /* The old and new album share one cell while they wipe, so they overlap instead of stacking. */
-    display: grid;
-    flex: 0 1 16rem;
-    min-width: 0;
-    width: 16rem;
-  }
-
-  .album-slot {
-    grid-area: 1 / 1;
-    min-width: 0;
-  }
-
-  .controls {
-    display: flex;
-    flex: 1 1 0;
-    gap: 1.25rem;
-    align-items: center;
-    min-width: 0;
-  }
-
-  .window-buttons {
-    display: flex;
-    flex: none;
-    gap: 0.125rem;
-  }
-
-  /* Narrow: the controls take the first line and the album drops below them. */
-  @media (max-width: 45rem) {
-    .controls {
-      flex-basis: 100%;
-    }
-
-    .album {
-      order: 1;
-      width: 100%;
-      flex-basis: 100%;
-    }
   }
 
   section {
@@ -440,6 +333,8 @@
     background: color-mix(in srgb, var(--akui-bg) 55%, transparent);
     backdrop-filter: blur(12px);
     border-radius: var(--akui-radius-m);
+    /* Gets its own layer before the transition starts, so the first animated frame isn't spent promoting it. */
+    will-change: transform, opacity;
   }
 
   .hint {

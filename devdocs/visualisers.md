@@ -21,7 +21,7 @@
 - When the track changes, `launchSongTitleAnim("artist - title")` shows it.
 - The canvas is opaque: the visualiser fully covers the backdrop.
 - Resolution: the canvas is drawn in device pixels, but one with more than 1.5 million pixels (`FULL_RESOLUTION_MAX_PIXELS`) is drawn at half size each way (`BIG_CANVAS_SCALE`, a quarter of the pixels), and never at more than 1920 x 1080 worth of pixels (`MAX_RENDER_PIXELS`). The browser stretches it to fit. A small window is drawn 1:1.
-- Resizing: size changes are debounced by 120 ms (`RESIZE_SETTLE_MS`). Fullscreen and the window height animation fire a resize every frame, and each real resize reallocates butterchurn's textures and blanks the canvas. In between, the old picture is stretched. After a resize a frame is drawn at once so the canvas is never blank.
+- Resizing: size changes are debounced by 120 ms (`RESIZE_SETTLE_MS`). Fullscreen and dragging the window edge fire a resize every frame, and each real resize reallocates butterchurn's textures and blanks the canvas. In between, the old picture is stretched. After a resize a frame is drawn at once so the canvas is never blank.
 
 ## Adding a visualiser
 

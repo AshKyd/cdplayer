@@ -44,7 +44,7 @@
   .seek {
     display: flex;
     flex: 1;
-    gap: 0.75rem;
+    gap: 1rem;
     align-items: center;
     min-width: 0;
   }
@@ -55,8 +55,10 @@
     accent-color: var(--akui-bg-accent);
   }
 
+  /* As wide as the album art (4.5rem) so the times line up with the cover below. */
   .time {
-    min-width: 2.75rem;
+    flex: none;
+    width: 4.5rem;
     font-variant-numeric: tabular-nums;
     text-align: center;
     color: var(--akui-fg-secondary);
