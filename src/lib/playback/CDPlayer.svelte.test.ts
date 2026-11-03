@@ -291,6 +291,20 @@ describe("CDPlayer", () => {
       expect(requestedUrls.length).toBe(requestsBefore);
     });
 
+    it("notices the disc being ejected while paused", async () => {
+      const { player, disc, deliverChunk } = current;
+      void player.play(track);
+      await deliverChunk();
+      await player.pause();
+      // The read that was already under way finishes; after that the fetch loop idles.
+      await deliverChunk();
+
+      disc.toc = null;
+      await player.checkDisc();
+
+      expect(player.status).toBe("noDisc");
+    });
+
     it("can pause while buffering and comes back to buffering", async () => {
       const { player, context, deliverChunk } = current;
       void player.play(track);

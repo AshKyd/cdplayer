@@ -12,7 +12,7 @@ Finds out which disc is in the drive by asking for its TOC at an interval, and r
 
 - `new DiscWatcher({ loadToc, isBusy, intervalMs, readingDelayMs, onChange })`. All options are optional.
   - `loadToc`: reads the TOC. Defaults to `invoke("get_toc")`. Tests pass a fake.
-  - `isBusy`: true while the drive is in use. `CDPlayer` passes whether audio is active (loading, playing, buffering or paused).
+  - `isBusy`: true while the drive is in use. `CDPlayer` passes true while loading, playing or buffering, or while a chunk read is under way. Paused is not busy, so an eject is noticed.
   - `intervalMs`: time between checks. Default 3000.
   - `readingDelayMs`: how long a check must run before `reading` turns on. Default 400.
   - `onChange(toc | null)`: called when the disc changes. `CDPlayer` tears down playback and sends `discInserted` or `discRemoved` ([player-lifecycle.md](player-lifecycle.md)).
@@ -30,7 +30,7 @@ Finds out which disc is in the drive by asking for its TOC at an interval, and r
 ## Limits
 
 - Detection takes up to one interval (3 s).
-- Nothing is checked while playing or paused. A disc swapped during a pause is only noticed after playback stops or a read fails.
+- Nothing is checked while playing. While paused it is checked, except during a chunk read that was already under way.
 - Each check opens the drive and releases it straight after, so the disc can be ejected between checks. An eject at the instant of a check can still be refused. Whether the open wakes or spins up a drive is untested on real hardware; change `intervalMs` if it does.
 - It reads only the first drive with an audio CD.
 

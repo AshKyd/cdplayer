@@ -35,7 +35,7 @@ noDisc ──discInserted──▶ loadingMetadata ──metadataSettled──�
 
 ## Who sends what
 
-- Disc events come from the `DiscWatcher` that `CDPlayer` owns. It polls `get_toc` while no audio is active (see [disc-watcher.md](disc-watcher.md)). A change tears down any playback and sends `discInserted` or `discRemoved`.
+- Disc events come from the `DiscWatcher` that `CDPlayer` owns. It polls `get_toc` unless audio is playing, loading or buffering (see [disc-watcher.md](disc-watcher.md)). A change tears down any playback and sends `discInserted` or `discRemoved`.
 - A failed chunk read stops playback (`stop`) and checks the drive straight away, which sends `discRemoved` if the disc is gone.
 - `underrun`, `chunkArrived` and the end of the queue come from the audio (`WebAudioHandler`'s `onEnded`) and the fetch loop.
 - The system interrupting the audio sets `interrupted` and sends `pause`; its recovery sends `resume`.

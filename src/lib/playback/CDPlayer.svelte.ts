@@ -138,6 +138,8 @@ export class CDPlayer {
   #fetchIndex = 0;
   /** True while the fetch loop has tracks left to read. */
   #fetching = false;
+  /** True while a chunk is being read from the drive; the watcher must not re-open the drive then. */
+  #isReadingChunk = false;
   /** Seconds of audio scheduled so far on the handler's timeline. */
   #scheduledSeconds = 0;
   /** True from the start of a run until `#prebufferSeconds` are buffered; the handler is held silent meanwhile. */
@@ -169,11 +171,12 @@ export class CDPlayer {
     this.#isMetadataLookupEnabled = isMetadataLookupEnabled;
     this.#isAutoplayEnabled = isAutoplayEnabled;
 
-    // The drive is left alone while audio is active: re-opening it would cut off reads.
+    // The drive is left alone while audio is being read: re-opening it would cut off reads. When paused
+    // the fetch loop idles, so the watcher keeps polling (between chunk reads) to notice an eject.
     this.#watcher = new DiscWatcher({
       loadToc,
       intervalMs: discCheckIntervalMs,
-      isBusy: () => isPlaybackActive(this.status),
+      isBusy: () => this.#isReadingChunk || (isPlaybackActive(this.status) && this.status !== "paused"),
       onChange: (toc) => this.#handleDiscChange(toc),
     });
 
@@ -569,8 +572,10 @@ export class CDPlayer {
       }
 
       const sectorCount = nextChunkSectorCount(track, cursorSector, isFirstChunk);
-      const response = await this.#fetchChunk(chunkUrl(this.#baseUrl, track.number, cursorSector, sectorCount));
-      const body = await response.arrayBuffer();
+      this.#isReadingChunk = true;
+      const { response, body } = await this.#fetchChunk(chunkUrl(this.#baseUrl, track.number, cursorSector, sectorCount))
+        .then(async (response) => ({ response, body: await response.arrayBuffer() }))
+        .finally(() => (this.#isReadingChunk = false));
       if (isCancelled()) return;
       if (!response.ok) throw new Error(`${response.status}: ${new TextDecoder().decode(body)}`);
 

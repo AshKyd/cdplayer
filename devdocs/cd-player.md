@@ -15,7 +15,7 @@ The player: finds the disc, looks up its track names ([musicbrainz.md](musicbrai
 ## API
 
 - `new CDPlayer({ handler, fetchChunk, baseUrl, loadToc, loadMetadata, isMetadataLookupEnabled, isAutoplayEnabled, discCheckIntervalMs, prebufferSeconds, onBeforePlay })`: all optional. `onBeforePlay` is called when a run starts, so the file player ([file-player.md](file-player.md)), which shares the handler, can let go of it. `prebufferSeconds` defaults to 5; the default handler fades by 100 ms when the `fadeEnabled` setting is on. `isMetadataLookupEnabled` defaults to the `musicBrainzEnabled` setting; when false the lookup is skipped and the disc is `ready` with no error. Tests pass a `WebAudioHandler` on a fake `AudioContext`, a fake chunk fetch, a fake drive (`loadToc`) and a fake lookup (`loadMetadata`). `baseUrl` is the `cd-track` protocol root, by default from `cdTrackBaseUrl()`.
-- `start()`: starts watching the drive for a disc. `destroy()`: stops watching and stops the audio. `checkDisc()`: looks at the drive now (does nothing while audio is active).
+- `start()`: starts watching the drive for a disc. `destroy()`: stops watching and stops the audio. `checkDisc()`: looks at the drive now (does nothing while playing, loading or buffering).
 - Disc state: `status`, `tracks` (the disc's tracks, empty with no disc), `metadata` (`DiscMetadata` or `null`), `metadataError`, `discError` (why there is no disc) and `readingDisc` (the drive is slow to report its TOC).
 - Playback state: `trackNumber`, `positionSeconds`, `durationSeconds` (length of the current track), `error`, `queue`, `unreadableSectors`, `interrupted`.
 - `status` is one of `noDisc`, `loadingMetadata`, `ready`, `loading`, `playing`, `buffering` and `paused`. What each means, and which moves between them are allowed, is in [player-lifecycle.md](player-lifecycle.md). Playing is only possible from `ready` onward, so nothing plays before the track names are settled.
@@ -54,7 +54,7 @@ The player: finds the disc, looks up its track names ([musicbrainz.md](musicbrai
   - `next()` calls `WebAudioHandler.skipTo()` at the next track's start. The buffered audio is scheduled again to play now, from the same buffers, so the switch is instant with no fetch. If the next track isn't buffered yet (the loop only reaches it when the current track is within about 30 s of its end), it flushes and restarts, and waits for the first chunk.
   - `seek()` calls `skipTo()` when the target is inside audio that is still buffered. Otherwise (further ahead than is buffered, or back in audio that has played out) it restarts the current track from the target, keeping the rest of the queue.
 - Chunk URLs are built on `cdTrackBaseUrl()`: `cd-track://localhost/` on macOS and Linux, `http://cd-track.localhost/` on Windows and Android. It asks Tauri's `convertFileSrc` for the platform prefix, and falls back to the first form outside Tauri.
-- The class owns a `DiscWatcher` ([disc-watcher.md](disc-watcher.md)). While no audio is active it polls for the disc; a change stops any playback, clears the tracks and metadata, and starts a new lookup (or goes to `noDisc`). A failed chunk read stops playback and checks the drive straight away.
+- The class owns a `DiscWatcher` ([disc-watcher.md](disc-watcher.md)). While no audio is playing (paused counts as not playing) it polls for the disc; a change stops any playback, clears the tracks and metadata, and starts a new lookup (or goes to `noDisc`). A failed chunk read stops playback and checks the drive straight away.
 - The UI is described in [ui.md](ui.md). It only reads state and calls `playFrom()`, `playPause()`, `previous()`, `next()` and `seek()`. `enqueue()` and `clearQueue()` are not used by it yet.
 
 ## Known issues
@@ -71,7 +71,7 @@ The player: finds the disc, looks up its track names ([musicbrainz.md](musicbrai
 - Output latency uses `AudioContext.outputLatency`, falling back to `baseLatency` (WebKit may not have `outputLatency`). The fallback understates the delay on Bluetooth, so the position can still run slightly ahead there.
 - Unreadable sectors are silent, not interpolated, so a click or dropout is audible. Damage the drive reports as read fine is not detected.
 - PCM conversion runs on the main thread. If it causes jank, move it to a Web Worker.
-- The disc is not checked while audio is active (including paused), so a disc swapped during a pause is only noticed after playback stops or a read fails.
+- The disc is not checked while audio is playing, loading or buffering, or while a chunk is being read. It is checked while paused, so an eject or swap during a pause is noticed and playback is torn down.
 - Only tested with the Rust bridge on macOS. Windows and Linux are untested. The Windows/Android URL form comes from Tauri's `convertFileSrc` and is only tested against a stand-in for it.
 
 ## Limits
