@@ -35,7 +35,7 @@ const metadataFor = (album: string): DiscMetadata => ({
  * `deliverChunk()`, so a test decides when the drive answers. `disc.toc` is the disc in the drive (`null` is
  * an empty drive) and `lookups.loadMetadata` is what the metadata lookup does.
  */
-const setup = ({ prebufferSeconds = 0, fadeSeconds = 0 } = {}) => {
+const setup = ({ prebufferSeconds = 0, fadeSeconds = 0, onDiscChange = (_toc: Toc | null) => {} } = {}) => {
   const context = new FakeAudioContext();
   const handler = new WebAudioHandler({
     createContext: () => context as unknown as AudioContext,
@@ -71,6 +71,7 @@ const setup = ({ prebufferSeconds = 0, fadeSeconds = 0 } = {}) => {
     },
     loadMetadata: (found) => lookups.loadMetadata(found),
     prebufferSeconds,
+    onDiscChange,
   });
 
   /** Looks at the drive and lets the metadata lookup finish, so the player is ready to play. */
@@ -597,6 +598,17 @@ describe("CDPlayer", () => {
 
       expect(player.status).toBe("noDisc");
       expect(player.tracks).toEqual([]);
+    });
+
+    it("reports a disc being inserted, and removed", async () => {
+      const onDiscChange = vi.fn();
+      const parts = setup({ onDiscChange });
+
+      await parts.ready();
+      parts.disc.toc = null;
+      await parts.player.checkDisc();
+
+      expect(onDiscChange.mock.calls.map(([found]) => found)).toEqual([toc, null]);
     });
 
     it("loads the disc's metadata before it is ready, and can't be played until then", async () => {

@@ -39,6 +39,8 @@ interface Options {
   prebufferSeconds?: number;
   /** Called when a run is about to start, so another player sharing the handler can let go of it. */
   onBeforePlay?: () => void;
+  /** Called when a disc is found, replaced or removed (`null`), so the page can show the disc instead of files. */
+  onDiscChange?: (toc: Toc | null) => void;
 }
 
 /** Fade length for play and pause when the setting is on. */
@@ -142,6 +144,7 @@ export class CDPlayer {
   #prebuffering = false;
   #prebufferSeconds: number;
   #onBeforePlay: () => void;
+  #onDiscChange: (toc: Toc | null) => void;
 
   constructor({
     handler = new WebAudioHandler({ fadeSeconds: () => (settings.fadeEnabled ? FADE_SECONDS : 0) }),
@@ -154,9 +157,11 @@ export class CDPlayer {
     isAutoplayEnabled = () => settings.autoplayEnabled,
     discCheckIntervalMs,
     onBeforePlay = () => {},
+    onDiscChange = () => {},
   }: Options = {}) {
     this.#handler = handler;
     this.#onBeforePlay = onBeforePlay;
+    this.#onDiscChange = onDiscChange;
     this.#prebufferSeconds = prebufferSeconds;
     this.#fetchChunk = fetchChunk;
     this.#baseUrl = baseUrl;
@@ -389,6 +394,7 @@ export class CDPlayer {
     this.metadataError = "";
     this.error = "";
     this.unreadableSectors = 0;
+    this.#onDiscChange(toc);
 
     if (!toc) {
       this.tracks = [];

@@ -31,6 +31,7 @@ The player: finds the disc, looks up its track names ([musicbrainz.md](musicbrai
 - `clearQueue()`: removes every track after the current one, including tracks already buffered (see Behaviour).
 - `next()`: skips to the next queued track. Instant if that track's start is already buffered.
 - `seek(seconds)`: moves within the current track and keeps the queue. Instant if that point is already buffered. A pause is kept.
+- `onDiscChange(toc | null)` option: called whenever the watcher finds, swaps or loses a disc, before the state changes. The page uses it to leave files mode.
 - `stop()` (back to `ready`, queue cleared), `pause()`, `resume()`, `togglePause()`.
 - `release()`: like `stop()` but leaves the handler alone, for when the file player takes it. A run sets the handler's `onEnded` and `onInterruption` callbacks when it starts.
 
