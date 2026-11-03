@@ -28,8 +28,8 @@ The player window, built with [svelte-akui](https://github.com/ashkyd/svelte-aku
 
 ## What shows for each status
 
-- `noDisc`: the album header shows "No disc". If the drive is slow to report its TOC (`readingDisc`), it shows a spinning disc and "Reading disc…" instead. The transport and seek bar are disabled. There is no table.
-- `loadingMetadata`: the album header shows a spinning disc and "Looking up album…". The controls are disabled and there is no table: tracks are not shown before their names are known.
+- `noDisc`: the album header shows "No disc". If the drive is slow to report its TOC (`readingDisc`), it shows a spinning disc and "Reading disc…" instead. The transport and seek bar fade out (they keep their space). There is no table.
+- `loadingMetadata`: the album header shows a spinning disc and "Looking up album…". The controls fade out and there is no table: tracks are not shown before their names are known.
 - A disc that MusicBrainz doesn't know shows "Unknown disc" in the album header.
 - `ready` and later: the album header (if MusicBrainz knew the disc) and the track table. If the lookup failed, the tracks are "Track 1", "Track 2", ... and a line says why names are unavailable.
 
@@ -48,7 +48,7 @@ When the disc is ejected the status becomes `noDisc`, so the table goes away and
   - Play/pause: `player.playPause()`. When stopped it plays the first playable track and everything after it; otherwise it toggles pause. It shows a pause icon while audio is active (loading, playing or buffering).
   - Previous: `player.previous()`. Disabled when no audio is active.
   - Next: `player.next()`. Disabled when nothing is queued after the current track.
-  - All are disabled with no disc or while the metadata loads.
+  - All fade out (and are disabled) with no disc or while the metadata loads. Previous and Next also fade out when there is no track in that direction. Faded controls keep their space, so nothing moves.
 - `SeekBar` is a native `<input type="range">`, since akui has no slider. It follows `positionSeconds` until dragged, then calls `player.seek()` on release.
 - The table is keyed on its rows, so a new disc clears the selection and scroll position.
 - Notices (`InfoBox`): audio output interrupted, unreadable sectors played as silence, and a playback error.

@@ -9,7 +9,7 @@ The controls bar of the player, shown below the track list as one presentational
 
 ## API
 
-- Display props: `metadata`, `message`, `busy`, `coverOpen`, `track`, `coverless`, `playing`, `transportDisabled`, `canPrevious`, `canNext`, `positionSeconds`, `durationSeconds`, `seekDisabled`.
+- Display props: `metadata`, `message`, `busy`, `coverOpen`, `track`, `coverless`, `playing`, `transportDisabled`, `canPrevious`, `canNext`, `positionSeconds`, `durationSeconds`, `seekDisabled`, `playlistToggleable` (default `true`; false hides the playlist button). The page sets it when the playlist has 2 or more rows, and sets `transportDisabled` and `seekDisabled` when there is no disc or the playlist is empty.
 - Bindable: `playlistVisible` (default `true`). The playlist button flips it; the page shows or hides the track list from it.
 - Callbacks: `onopencover`, `onprevious`, `onplaypause`, `onnext`, `onseek(seconds)`, `onsettings`, `onfullscreen`. All are optional and default to no-ops.
 

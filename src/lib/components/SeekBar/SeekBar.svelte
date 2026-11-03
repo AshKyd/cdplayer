@@ -20,7 +20,8 @@
   const shownSeconds = $derived(scrubSeconds ?? positionSeconds);
 </script>
 
-<div class="seek">
+<!-- Fades out when disabled but keeps its space, so the layout doesn't jump. -->
+<div class="seek" class:hidden={disabled}>
   <span class="time">{formatClock(shownSeconds)}</span>
   <!-- A native range for now: akui has no slider. -->
   <input
@@ -47,6 +48,20 @@
     gap: 1rem;
     align-items: center;
     min-width: 0;
+    transition:
+      opacity 0.2s,
+      visibility 0.2s;
+  }
+
+  .seek.hidden {
+    opacity: 0;
+    visibility: hidden;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .seek {
+      transition: none;
+    }
   }
 
   input {

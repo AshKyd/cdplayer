@@ -34,6 +34,8 @@
     seekDisabled?: boolean;
     /** Whether the playlist is shown. The playlist button flips it. */
     playlistVisible?: boolean;
+    /** The playlist button is offered. A playlist of one item has nothing to hide. */
+    playlistToggleable?: boolean;
     onopencover?: () => void;
     onprevious?: () => void;
     onplaypause?: () => void;
@@ -61,6 +63,7 @@
     durationSeconds = 0,
     seekDisabled = false,
     playlistVisible = $bindable(true),
+    playlistToggleable = true,
     onopencover,
     onprevious = noop,
     onplaypause = noop,
@@ -88,13 +91,15 @@
     />
   </div>
   <div class="window-buttons">
-    <Button
-      variant="ghost"
-      icon="music-note-list"
-      iconPosition="only"
-      aria-label={playlistVisible ? "Hide playlist" : "Show playlist"}
-      onclick={() => (playlistVisible = !playlistVisible)}
-    />
+    {#if playlistToggleable}
+      <Button
+        variant="ghost"
+        icon="music-note-list"
+        iconPosition="only"
+        aria-label={playlistVisible ? "Hide playlist" : "Show playlist"}
+        onclick={() => (playlistVisible = !playlistVisible)}
+      />
+    {/if}
     <Button
       variant="ghost"
       icon="fullscreen"

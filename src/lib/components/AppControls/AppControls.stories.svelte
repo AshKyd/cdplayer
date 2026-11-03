@@ -82,13 +82,13 @@
 
 <Story name="No disc" asChild>
   <UIRoot>
-    <AppControls metadata={null} message="No disc" transportDisabled seekDisabled />
+    <AppControls metadata={null} message="No disc" transportDisabled seekDisabled playlistToggleable={false} />
   </UIRoot>
 </Story>
 
 <Story name="Reading disc" asChild>
   <UIRoot>
-    <AppControls metadata={null} message="Reading disc…" busy transportDisabled seekDisabled />
+    <AppControls metadata={null} message="Reading disc…" busy transportDisabled seekDisabled playlistToggleable={false} />
   </UIRoot>
 </Story>
 

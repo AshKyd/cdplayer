@@ -276,8 +276,9 @@
     {canNext}
     positionSeconds={active.positionSeconds}
     durationSeconds={active.durationSeconds}
-    seekDisabled={isNothingToShow || !isActive}
+    seekDisabled={isTransportDisabled || !isActive}
     bind:playlistVisible
+    playlistToggleable={rows.length >= 2}
     onopencover={() => setCoverOpen(true)}
     onprevious={() => void active.previous()}
     onplaypause={() => void active.playPause()}
