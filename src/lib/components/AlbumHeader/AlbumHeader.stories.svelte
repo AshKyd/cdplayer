@@ -19,6 +19,11 @@
     coverUrl: null,
   });
 
+  /** A plain square standing in for a cover. */
+  const sampleCover = `data:image/svg+xml,${encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="#3a6ea5"/><circle cx="100" cy="100" r="60" fill="#f2c14e"/></svg>',
+  )}`;
+
   /** Album titles from short to extreme, to see the one-line, shrunk, two-line and ellipsis cases. */
   const albums: [label: string, disc: DiscMetadata][] = [
     ["Short", discWith("Group Therapy")],
@@ -50,6 +55,21 @@
           </div>
         </figure>
       {/each}
+    </div>
+  </UIRoot>
+</Story>
+
+<Story name="With cover art" asChild>
+  <UIRoot>
+    <div class="album"><AlbumHeader metadata={{ ...discWith("Group Therapy"), coverUrl: sampleCover }} /></div>
+  </UIRoot>
+</Story>
+
+<!-- Starts with a cover that fails to load, so the cover's space slides away once the load fails. -->
+<Story name="Cover fails to load" asChild>
+  <UIRoot>
+    <div class="album">
+      <AlbumHeader metadata={{ ...discWith("Group Therapy"), coverUrl: "https://invalid.invalid/missing.jpg" }} />
     </div>
   </UIRoot>
 </Story>

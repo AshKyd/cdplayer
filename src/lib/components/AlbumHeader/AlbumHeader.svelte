@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Icon } from "svelte-akui";
-  import { fade } from "svelte/transition";
+  import { cubicInOut } from "svelte/easing";
+  import { fade, slide } from "svelte/transition";
   import DiscSpinner from "$lib/components/DiscSpinner/DiscSpinner.svelte";
   import CopyfitText from "$lib/components/CopyfitText/CopyfitText.svelte";
   import type { DiscMetadata } from "$lib/metadata/types";
@@ -16,14 +17,18 @@
     onopencover?: () => void;
     /** True while the cover is shown full size elsewhere, which holds the view transition name instead. */
     coverOpen?: boolean;
+    /** The source can't have a cover (audio files, such as an MP3 CD), so no space is kept for one. */
+    coverless?: boolean;
   }
 
-  let { metadata, message = "", busy = false, onopencover, coverOpen = false }: Props = $props();
+  let { metadata, message = "", busy = false, onopencover, coverOpen = false, coverless = false }: Props = $props();
 
   /** The cover URL that has finished loading. The icon stays until then, so the image fades in rather than pops in. */
   let loadedCoverUrl = $state("");
 
-  /** A cover that fails to load (offline, removed) leaves the disc icon showing. */
+  /** The cover URL that failed to load (offline, removed). */
+  let failedCoverUrl = $state("");
+
   $effect(() => {
     const coverUrl = metadata?.coverUrl;
     if (!coverUrl) {
@@ -35,7 +40,10 @@
     image.onload = () => {
       if (!stale) loadedCoverUrl = coverUrl;
     };
-    image.onerror = () => console.log(`[cover] ${JSON.stringify({ imageFailedToLoad: coverUrl })}`);
+    image.onerror = () => {
+      console.log(`[cover] ${JSON.stringify({ imageFailedToLoad: coverUrl })}`);
+      if (!stale) failedCoverUrl = coverUrl;
+    };
     image.src = coverUrl;
     return () => {
       stale = true;
@@ -44,27 +52,39 @@
 
   const showCover = $derived(Boolean(metadata?.coverUrl) && loadedCoverUrl === metadata?.coverUrl);
 
+  /**
+   * Whether the cover's space is kept. Without a disc, or while one is being read or looked up, the disc icon
+   * holds the space so the header doesn't change shape. Once the disc is known and has no cover (none listed,
+   * or it failed to load) the space goes and the text gets the whole width. A cover that is still loading keeps it.
+   */
+  const hasCoverSpace = $derived(
+    !coverless && (!metadata || (Boolean(metadata.coverUrl) && failedCoverUrl !== metadata.coverUrl)),
+  );
+
   const details = $derived(metadata ? [metadata.artist, metadata.year].filter(Boolean).join(" · ") : "");
 </script>
 
 <div class="album">
-  <button
-    type="button"
-    class="cover"
-    disabled={!showCover || !onopencover}
-    aria-label="View cover art"
-    onclick={onopencover}
-    style:view-transition-name={showCover && !coverOpen ? "album-cover" : null}
-  >
-    <!-- Both share one grid cell, so the icon fades out while the cover fades in. -->
-    {#if metadata && showCover}
-      <img transition:fade src={metadata.coverUrl} alt="Cover of {metadata.album}" />
-    {:else}
-      <div class="icon" transition:fade>
-        {#if busy}<DiscSpinner />{:else}<Icon name="disc" size="2rem" />{/if}
-      </div>
-    {/if}
-  </button>
+  {#if hasCoverSpace}
+    <button
+      type="button"
+      class="cover"
+      disabled={!showCover || !onopencover}
+      aria-label="View cover art"
+      onclick={onopencover}
+      style:view-transition-name={showCover && !coverOpen ? "album-cover" : null}
+      transition:slide={{ axis: "x", duration: 300, easing: cubicInOut }}
+    >
+      <!-- Both share one grid cell, so the icon fades out while the cover fades in. -->
+      {#if metadata && showCover}
+        <img transition:fade src={metadata.coverUrl} alt="Cover of {metadata.album}" />
+      {:else}
+        <div class="icon" transition:fade>
+          {#if busy}<DiscSpinner />{:else}<Icon name="disc" size="2rem" />{/if}
+        </div>
+      {/if}
+    </button>
+  {/if}
   <div class="text" class:placeholder={!metadata}>
     <CopyfitText
       tag="h1"
@@ -80,13 +100,16 @@
 <style>
   .album {
     display: flex;
-    gap: 1rem;
     align-items: center;
+    /* The cover's height, so the controls bar doesn't change height when the cover goes. */
+    min-height: 4.5rem;
   }
 
   .cover {
     display: grid;
     flex: none;
+    /* A margin rather than a flex gap, so the slide transition animates the space with the cover. */
+    margin-right: 1rem;
     place-items: center;
     width: 4.5rem;
     height: 4.5rem;
