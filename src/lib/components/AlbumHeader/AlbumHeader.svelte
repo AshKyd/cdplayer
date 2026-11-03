@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Icon } from "svelte-akui";
   import { cubicInOut } from "svelte/easing";
+  import { wipeIn, wipeOut } from "$lib/transitions/wipe";
   import { fade, slide } from "svelte/transition";
   import DiscSpinner from "$lib/components/DiscSpinner/DiscSpinner.svelte";
   import CopyfitText from "$lib/components/CopyfitText/CopyfitText.svelte";
@@ -17,11 +18,21 @@
     onopencover?: () => void;
     /** True while the cover is shown full size elsewhere, which holds the view transition name instead. */
     coverOpen?: boolean;
+    /** The track being played. When set, its title and artist replace the album's, and no year is shown. */
+    track?: { title: string; artist: string } | null;
     /** The source can't have a cover (audio files, such as an MP3 CD), so no space is kept for one. */
     coverless?: boolean;
   }
 
-  let { metadata, message = "", busy = false, onopencover, coverOpen = false, coverless = false }: Props = $props();
+  let {
+    metadata,
+    message = "",
+    busy = false,
+    onopencover,
+    coverOpen = false,
+    track = null,
+    coverless = false,
+  }: Props = $props();
 
   /** The cover URL that has finished loading. The icon stays until then, so the image fades in rather than pops in. */
   let loadedCoverUrl = $state("");
@@ -61,7 +72,20 @@
     !coverless && (!metadata || (Boolean(metadata.coverUrl) && failedCoverUrl !== metadata.coverUrl)),
   );
 
-  const details = $derived(metadata ? [metadata.artist, metadata.year].filter(Boolean).join(" · ") : "");
+  /** The playing track's title, otherwise the album's (or the placeholder message). */
+  const heading = $derived(track?.title || (metadata ? metadata.album : message));
+
+  /**
+   * Artist (and year) under the heading. MusicBrainz gives a year for the release only, not per track, so a
+   * track shows its artist alone; the year is only shown with the album.
+   */
+  const details = $derived(
+    track
+      ? track.artist || metadata?.artist || ""
+      : metadata
+        ? [metadata.artist, metadata.year].filter(Boolean).join(" · ")
+        : "",
+  );
 </script>
 
 <div class="album">
@@ -85,15 +109,20 @@
       {/if}
     </button>
   {/if}
-  <div class="text" class:placeholder={!metadata}>
-    <CopyfitText
-      tag="h1"
-      text={metadata ? metadata.album : message}
-      style="font-size: 1.25rem; font-weight: 600;{metadata ? '' : ' color: var(--akui-fg-secondary);'}"
-    />
-    {#if details}
-      <CopyfitText tag="p" text={details} style="color: var(--akui-fg-secondary);" />
-    {/if}
+  <!-- The old and new text sit in the same box, so the new text wipes in over the old as the track changes. -->
+  <div class="text">
+    {#key `${heading}\n${details}`}
+      <div class="text-slot" in:wipeIn out:wipeOut>
+        <CopyfitText
+          tag="h1"
+          text={heading}
+          style="font-size: 1.25rem; font-weight: 600;{metadata || track ? '' : ' color: var(--akui-fg-secondary);'}"
+        />
+        {#if details}
+          <CopyfitText tag="p" text={details} style="color: var(--akui-fg-secondary);" />
+        {/if}
+      </div>
+    {/key}
   </div>
 </div>
 
@@ -144,7 +173,23 @@
 
   /* Fills the fixed-width album block, so the text is fitted to the same width for every disc. */
   .text {
+    position: relative;
     flex: 1;
+    min-width: 0;
+    /* A fixed height, because the slots are out of flow: it matches the cover, so the header never changes height. */
+    align-self: stretch;
+    min-height: 4.5rem;
+  }
+
+  /*
+   * Each slot fills the box and centres its own text, so the outgoing and incoming text sit in the same
+   * place while they wipe and nothing moves vertically when the old one is removed.
+   */
+  .text-slot {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    align-content: center;
     min-width: 0;
   }
 </style>

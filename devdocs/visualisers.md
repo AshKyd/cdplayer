@@ -4,13 +4,12 @@
 
 ## Files
 
-- `src/lib/components/Visualiser/Visualiser.svelte`: creates the butterchurn renderer on its canvas, feeds it samples at 30 fps, loads the chosen preset, shows the track title.
+- `src/lib/components/Visualiser/Visualiser.svelte`: creates the butterchurn renderer on its canvas, feeds it samples at 30 fps, loads the chosen preset.
 - `src/lib/visualisers/visualiserCatalogue.ts`: `PRESET_NAMES` (the presets on offer, in order), `RANDOM_VISUALISER_ID`, `DEFAULT_VISUALISER_ID`, `isVisualiserId()`. Names only, so it is safe to import anywhere. A saved choice that is not in the list falls back to the default.
 - `src/lib/visualisers/butterchurnPresets.ts`: `listPresetNames()` (just `PRESET_NAMES`, no pack load) and `loadButterchurnPreset(name)`, which returns one of ours or imports `butterchurn-presets` (the large base pack) on first use.
 - `src/lib/visualisers/customPresets/`: presets written for this app (`CUSTOM_PRESETS`, by display name). Each preset has its own folder; `unusedParts.ts` holds the switched-off shapes and waves they share. `relativeDimensions/` is "Relative dimensions" (`frameEquations.ts`, `pathEquations.ts`, `warpShader.ts`, assembled in `relativeDimensions.ts`). Sizes are relative to the longer canvas side, and `q7` / `q8` keep shapes round on any canvas size. Emitter A is 192 shape instances along a path that eases between spiral, circle and star while rotating; emitter B is two rings of evenly spaced emitters that follow the treble drawn in the `warp` shader (see below). Hues are complementary and cycle the rainbow every 20 s, drawn into a zooming, twisting feedback loop.
 - `src/lib/visualisers/presetTweaks.ts`: `PRESET_TWEAKS`, literal text edits to individual presets (for example to tame one that is too bright), applied to a copy when the preset loads. An edit that no longer matches logs a warning.
 - `src/lib/visualisers/butterchurn.d.ts`: types for the two packages, which ship none.
-- `src/lib/visualisers/types.ts`: `VisualiserTrackInfo`.
 
 ## Behaviour
 
@@ -18,7 +17,7 @@
 - Each frame the page reads the `AnalyserNode` bytes (`readWaveform`) and passes them to `render({ audioLevels })`, the same samples for both channels. When not playing it passes silence (128), so the preset settles.
 - butterchurn is given an `OfflineAudioContext` only for its sample rate (44.1 kHz).
 - Changing preset blends over 1.5 s. Settings re-create the component (`{#key}`) anyway.
-- When the track changes, `launchSongTitleAnim("artist - title")` shows it.
+- No track title is drawn over the picture.
 - The canvas is opaque: the visualiser fully covers the backdrop.
 - Resolution: the canvas is drawn in device pixels, but one with more than 1.5 million pixels (`FULL_RESOLUTION_MAX_PIXELS`) is drawn at half size each way (`BIG_CANVAS_SCALE`, a quarter of the pixels), and never at more than 1920 x 1080 worth of pixels (`MAX_RENDER_PIXELS`). The browser stretches it to fit. A small window is drawn 1:1.
 - Resizing: size changes are debounced by 120 ms (`RESIZE_SETTLE_MS`). Fullscreen and dragging the window edge fire a resize every frame, and each real resize reallocates butterchurn's textures and blanks the canvas. In between, the old picture is stretched. After a resize a frame is drawn at once so the canvas is never blank.

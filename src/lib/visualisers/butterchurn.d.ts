@@ -2,7 +2,6 @@ declare module "butterchurn" {
   interface ButterchurnVisualizer {
     setRendererSize(width: number, height: number): void;
     loadPreset(preset: object, blendTimeSeconds: number): void;
-    launchSongTitleAnim(text: string): void;
     render(options?: {
       audioLevels?: { timeByteArray: Uint8Array; timeByteArrayL: Uint8Array; timeByteArrayR: Uint8Array };
       elapsedTime?: number;

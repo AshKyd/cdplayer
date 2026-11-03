@@ -5,7 +5,6 @@
   import { WAVEFORM_SAMPLES } from "$lib/playback/WebAudioHandler";
   import { listPresetNames, loadButterchurnPreset } from "$lib/visualisers/butterchurnPresets";
   import { pickRandomPresetName } from "$lib/visualisers/pickRandomPresetName";
-  import type { VisualiserTrackInfo } from "$lib/visualisers/types";
   import { RANDOM_PRESET_SECONDS, RANDOM_VISUALISER_ID, type VisualiserId } from "$lib/visualisers/visualiserCatalogue";
 
   interface Props {
@@ -15,11 +14,9 @@
     readWaveform: (target: Uint8Array<ArrayBuffer>) => boolean;
     /** True while audio is sounding. When false, silence is fed in so the preset settles. */
     playing: boolean;
-    /** The current track, or `null` with no disc. Its title is shown when the track changes. */
-    track: VisualiserTrackInfo | null;
   }
 
-  let { visualiserId, readWaveform, playing, track }: Props = $props();
+  let { visualiserId, readWaveform, playing }: Props = $props();
 
   const TARGET_FPS = 30;
   const FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
@@ -205,11 +202,6 @@
       stale = true;
       clearInterval(timer);
     };
-  });
-
-  $effect(() => {
-    const title = track && [track.artist, track.title].filter(Boolean).join(" - ");
-    if (title) renderer?.launchSongTitleAnim(title);
   });
 </script>
 

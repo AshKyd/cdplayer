@@ -78,7 +78,6 @@
     {visualiserId}
     readWaveform={(target) => player.readWaveform(target)}
     {playing}
-    track={null}
   />
 {/key}
 

@@ -18,7 +18,6 @@
   import { settings } from "$lib/settings/settings.svelte";
   import { isInside, normalisePath } from "$lib/volumes/paths";
   import { VolumeFilesLoader } from "$lib/volumes/VolumeFilesLoader.svelte";
-  import type { VisualiserTrackInfo } from "$lib/visualisers/types";
   import CoverTheme from "$lib/components/CoverTheme/CoverTheme.svelte";
   import CoverViewer from "$lib/components/CoverViewer/CoverViewer.svelte";
   import { riseFade } from "$lib/transitions/riseFade";
@@ -157,23 +156,17 @@
       ? filePlayer.currentIndex !== null && filePlayer.currentIndex < filePlayer.tracks.length - 1
       : player.queue.length > 1,
   );
-  const visualiserTrack = $derived.by((): VisualiserTrackInfo | null => {
-    if (filesMode) {
-      if (!filePlayer.current || filePlayer.currentIndex === null) return null;
-      return {
-        number: filePlayer.currentIndex + 1,
-        title: filePlayer.current.title,
-        artist: "",
-        durationSeconds: filePlayer.durationSeconds,
-      };
-    }
+  /**
+   * The disc track being played, shown in the album header in place of the album. Files already show their name
+   * as the header's message, and have no artist.
+   */
+  const currentTrack = $derived.by(() => {
+    if (filesMode) return null;
     const track = player.tracks.find(({ number }) => number === player.trackNumber);
-    if (!track) return null;
+    if (!track?.is_audio) return null;
     return {
-      number: track.number,
       title: player.trackTitle(track),
       artist: player.trackArtist(track) || player.metadata?.artist || "",
-      durationSeconds: player.durationSeconds,
     };
   });
   /** True while the disc is being read or looked up. */
@@ -233,7 +226,6 @@
       visualiserId={settings.visualiserId}
       readWaveform={(target) => active.readWaveform(target)}
       playing={isSounding}
-      track={visualiserTrack}
     />
   {/key}
 {/if}
@@ -276,6 +268,7 @@
     message={albumPlaceholder}
     busy={!filesMode && isReadingDisc}
     coverOpen={isCoverOpen}
+    track={currentTrack}
     coverless={filesMode}
     playing={isSounding}
     transportDisabled={isTransportDisabled}
@@ -333,6 +326,8 @@
     background: color-mix(in srgb, var(--akui-bg) 55%, transparent);
     backdrop-filter: blur(12px);
     border-radius: var(--akui-radius-m);
+    /* Space above the first row, now that the table header is hidden. */
+    padding-top: 0.75rem;
     /* Gets its own layer before the transition starts, so the first animated frame isn't spent promoting it. */
     will-change: transform, opacity;
   }

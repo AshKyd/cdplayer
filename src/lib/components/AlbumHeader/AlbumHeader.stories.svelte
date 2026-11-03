@@ -59,6 +59,25 @@
   </UIRoot>
 </Story>
 
+<Story name="Playing a track" asChild>
+  <UIRoot>
+    <div class="grid">
+      <div class="album">
+        <AlbumHeader
+          metadata={{ ...discWith("Group Therapy"), coverUrl: sampleCover }}
+          track={{ title: "Sirens of the Sea", artist: "Above & Beyond" }}
+        />
+      </div>
+      <div class="album">
+        <AlbumHeader
+          metadata={discWith("Trance Nation: The Ultimate Collection of Classics", "Various Artists", "")}
+          track={{ title: "Rapture (Original Mix) (feat. Justine Suissa)", artist: "Armin van Buuren, Ferry Corsten & Tiësto" }}
+        />
+      </div>
+    </div>
+  </UIRoot>
+</Story>
+
 <Story name="With cover art" asChild>
   <UIRoot>
     <div class="album"><AlbumHeader metadata={{ ...discWith("Group Therapy"), coverUrl: sampleCover }} /></div>
