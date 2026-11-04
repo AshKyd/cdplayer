@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FileDecoder } from "$lib/files/FileDecoder";
+import type { FileTag } from "$lib/files/fileMetadata";
 import type { Problem } from "$lib/notifications/notifications.svelte";
 import { FakeAudioContext } from "./FakeAudioContext.testing";
 import { FilePlayer } from "./FilePlayer.svelte";
@@ -29,7 +30,12 @@ const fakeDecoder = (pieces: number): FileDecoder & { closed: boolean; seekedTo:
   return decoder;
 };
 
-const setup = ({ brokenNames = [] as string[], onBeforePlay = () => {}, piecesPerFile = PIECES_PER_FILE } = {}) => {
+const setup = ({
+  brokenNames = [] as string[],
+  onBeforePlay = () => {},
+  piecesPerFile = PIECES_PER_FILE,
+  tagsByName = {} as Record<string, FileTag[]>,
+} = {}) => {
   const problems: Problem[] = [];
   const context = new FakeAudioContext();
   const handler = new WebAudioHandler({ createContext: () => context as unknown as AudioContext });
@@ -40,6 +46,7 @@ const setup = ({ brokenNames = [] as string[], onBeforePlay = () => {}, piecesPe
     prebufferSeconds: 0,
     onBeforePlay,
     onProblem: (problem) => problems.push(problem),
+    readTags: async (path) => tagsByName[path.split("/").at(-1) ?? path] ?? [],
     openDecoder: async (path) => {
       const name = path.split("/").at(-1) ?? path;
       opened.push(name);
@@ -104,6 +111,28 @@ describe("FilePlayer", () => {
       expect(player.tracks).toHaveLength(1);
       expect(player.status).toBe("idle");
       expect(opened).toEqual([]);
+    });
+
+    it("replaces file names with the title and artist tags once they are read", async () => {
+      const { player, flush } = setup({
+        tagsByName: { "a.mp3": [{ key: "TIT2", value: "Intro", standard: "TrackTitle" }, { key: "TPE1", value: "Band", standard: "Artist" }] },
+      });
+
+      player.enqueue([file("a.mp3"), file("b.mp3")], { play: false });
+      await flush();
+
+      expect(player.tracks.map(({ title }) => title)).toEqual(["Intro", "b"]);
+      expect(player.tracks[0].artist).toBe("Band");
+    });
+
+    it("drops tags that arrive after the playlist was cleared", async () => {
+      const { player, flush } = setup({ tagsByName: { "a.mp3": [{ key: "TIT2", value: "Intro", standard: "TrackTitle" }] } });
+
+      player.enqueue([file("a.mp3")], { play: false });
+      player.clear();
+      await flush();
+
+      expect(player.tracks).toEqual([]);
     });
 
     it("ignores an empty drop", () => {

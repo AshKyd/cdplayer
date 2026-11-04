@@ -1,4 +1,5 @@
-import { createFileTrack, type FileTrack } from "$lib/files/fileTrack";
+import { readFileTags, type FileTag } from "$lib/files/fileMetadata";
+import { applyTags, createFileTrack, type FileTrack } from "$lib/files/fileTrack";
 import type { FileDecoder } from "$lib/files/FileDecoder";
 import { openRustFileDecoder } from "$lib/files/RustFileDecoder";
 import type { Problem } from "$lib/notifications/notifications.svelte";
@@ -21,6 +22,8 @@ interface Options {
   handler?: WebAudioHandler;
   /** Opens a file for streaming decode. Tests pass a fake. */
   openDecoder?: (path: string) => Promise<FileDecoder>;
+  /** Reads every tag in a file (resolving to none if it can't). Tests pass a fake. */
+  readTags?: (path: string) => Promise<FileTag[]>;
   /** Seconds of audio to hold back before a run starts sounding; defaults to `PREBUFFER_SECONDS`. */
   prebufferSeconds?: number;
   /** Seconds of audio to keep scheduled ahead; defaults to `TARGET_LEAD_SECONDS`. */
@@ -45,7 +48,6 @@ const PREBUFFER_SECONDS = 5;
 const TARGET_LEAD_SECONDS = 15;
 
 const LEAD_CHECK_INTERVAL_MS = 250;
-
 const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 const isActiveStatus = (status: FilePlayerStatus) => status !== "idle";
@@ -80,6 +82,7 @@ export class FilePlayer {
 
   #handler: WebAudioHandler;
   #openDecoder: (path: string) => Promise<FileDecoder>;
+  #readTags: (path: string) => Promise<FileTag[]>;
   #onBeforePlay: () => void;
   #onProblem: (problem: Problem) => void;
   #prebufferSeconds: number;
@@ -107,6 +110,7 @@ export class FilePlayer {
   constructor({
     handler = new WebAudioHandler({ fadeSeconds: () => (settings.fadeEnabled ? FADE_SECONDS : 0) }),
     openDecoder = (path) => openRustFileDecoder(path),
+    readTags = (path) => readFileTags(path),
     prebufferSeconds = PREBUFFER_SECONDS,
     leadSeconds = TARGET_LEAD_SECONDS,
     onBeforePlay = () => {},
@@ -115,6 +119,7 @@ export class FilePlayer {
     this.#handler = handler;
     this.#onProblem = onProblem;
     this.#openDecoder = openDecoder;
+    this.#readTags = readTags;
     this.#prebufferSeconds = prebufferSeconds;
     this.#leadSeconds = leadSeconds;
     this.#onBeforePlay = onBeforePlay;
@@ -126,7 +131,7 @@ export class FilePlayer {
     this.status = "idle";
   }
 
-  /** The file's name without its extension. */
+  /** The file's title tag, or its name without the extension when it has none. */
   trackTitle({ title }: FileTrack): string {
     return title;
   }
@@ -143,13 +148,34 @@ export class FilePlayer {
   enqueue(paths: string[], { play = true } = {}): void {
     if (paths.length === 0) return;
     const firstNewIndex = this.tracks.length;
-    this.tracks.push(...paths.map(createFileTrack));
+    const newTracks = paths.map(createFileTrack);
+    this.tracks.push(...newTracks);
+    // Titles show the file names first; playback never waits on tags.
+    void this.#loadTags(newTracks.map(({ id, path }) => ({ id, path })));
 
     if (this.status === "idle") {
       if (play) void this.#start(firstNewIndex, 0);
       return;
     }
     if (!this.#fetching) void this.#pump(this.#runId, 0);
+  }
+
+  /**
+   * Reads the tags of `files` one at a time, top to bottom, and fills them into the playlist. In series on purpose:
+   * on an optical drive, reading several files at once makes the laser seek back and forth between them.
+   * Tracks are found again by id because the playlist may have been cleared while the tags were being read.
+   */
+  #loadTags(files: { id: string; path: string }[]): Promise<void> {
+    return files.reduce(
+      (previous, { id, path }) => previous.then(async () => this.#fillTags(id, await this.#readTags(path))),
+      Promise.resolve(),
+    );
+  }
+
+  #fillTags(id: string, tags: FileTag[]): void {
+    const track = this.tracks.find((candidate) => candidate.id === id);
+    if (!track || tags.length === 0) return;
+    Object.assign(track, applyTags(track, tags));
   }
 
   /** Empties the playlist and stops. */

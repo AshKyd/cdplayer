@@ -35,11 +35,11 @@ export const toTrackRows = (
 
 /** One row per file, in playlist order. A file's length is only known once it has been opened. */
 export const toFileTrackRows = (tracks: FileTrack[]): TrackRow[] =>
-  tracks.map(({ id, title, durationSeconds }, index) => ({
+  tracks.map(({ id, title, artist, durationSeconds }, index) => ({
     key: id,
     number: index + 1,
     title,
-    artist: "",
+    artist: artist ?? "",
     duration: durationSeconds > 0 ? formatClock(Math.round(durationSeconds)) : "",
     playable: true,
   }));

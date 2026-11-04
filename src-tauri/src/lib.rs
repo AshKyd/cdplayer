@@ -40,6 +40,7 @@ pub fn run() {
             commands::get_toc,
             commands::open_audio_file,
             commands::close_audio_file,
+            commands::get_metadata,
             commands::list_optical_volumes
         ])
         .run(tauri::generate_context!())

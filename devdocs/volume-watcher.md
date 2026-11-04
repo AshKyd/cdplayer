@@ -32,6 +32,6 @@ Plays data and MP3 CDs: notices a mounted disc, works out which files to play an
 ## Limits
 
 - Only M3U, M3U8 and PLS. XSPF, WPL and ASX are not read.
-- No tags, so titles are file names ([file-player.md](file-player.md)).
+- Titles come from each file's tags once they are read, and are the file names until then ([file-metadata.md](file-metadata.md)). Files stay in the disc's order, not track-number order, on purpose.
 - Folders are read all at once, which can be slow on a large disc.
 - The disc's label is only shown until the first file starts; then the file name is.

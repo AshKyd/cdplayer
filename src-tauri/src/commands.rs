@@ -1,5 +1,5 @@
 use crate::disc::{Toc, reader::DiscHandle};
-use crate::files::{FileRegistry, OpenedFile};
+use crate::files::{self, FileRegistry, FileTag, OpenedFile};
 use crate::volumes::optical::{self, OpticalVolume};
 use tauri::{AppHandle, State};
 use tauri_plugin_fs::FsExt;
@@ -24,6 +24,15 @@ pub async fn get_toc(state: State<'_, DiscState>) -> Result<Toc, String> {
 pub async fn open_audio_file(path: String, registry: State<'_, FileRegistry>) -> Result<OpenedFile, String> {
     let registry = registry.inner().clone();
     tauri::async_runtime::spawn_blocking(move || registry.open(&path))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// Every tag in an audio file (title, artist, track number...), as the file stores them. The frontend picks
+/// what it wants. Reads the file's header, so it runs off the async runtime's threads.
+#[tauri::command]
+pub async fn get_metadata(path: String) -> Result<Vec<FileTag>, String> {
+    tauri::async_runtime::spawn_blocking(move || files::read_file_tags(&path))
         .await
         .map_err(|error| error.to_string())?
 }

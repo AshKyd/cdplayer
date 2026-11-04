@@ -27,7 +27,7 @@ All in `src/lib/components/NowPlaying/`:
 ## Behaviour
 
 - The silent element plays whenever the player is not paused, and pauses with it.
-- Title, artist, album and cover come from `CDPlayer` (MusicBrainz). The artist falls back to the album artist. With no MusicBrainz match the title is "Track N". For files ([file-player.md](file-player.md)) only the title is set, from the file name.
+- Title, artist, album and cover come from `CDPlayer` (MusicBrainz). The artist falls back to the album artist. With no MusicBrainz match the title is "Track N". For files ([file-player.md](file-player.md)) only the title is set: the title tag, or the file name when there is none.
 - The position is reported with `setPositionState()` only when first shown, when the play state or duration changes, or when it differs from the OS's own extrapolation by more than 1 s (a seek). Not every frame.
 - `CDPlayer` is the source of truth. The OS buttons call its methods, and the silent element follows its state.
 

@@ -10,13 +10,15 @@ This is outside "keep it a JS app" on purpose: WebKit's own flac decoder fails, 
 - `src-tauri/src/files/session.rs`: `FileSession`, one open file. Reads, seeks, decodes, mixes to stereo.
 - `src-tauri/src/files/resampler.rs`: `Resampler`, a streaming polyphase windowed-sinc converter (32 taps, exact rational ratio).
 - `src-tauri/src/files/protocol.rs`: the `file-track` protocol.
-- `src-tauri/src/commands.rs`: `open_audio_file`, `close_audio_file`.
+- `src-tauri/src/files/metadata.rs`: `read_tags`, every tag in a file (see [file-metadata.md](file-metadata.md)).
+- `src-tauri/src/commands.rs`: `open_audio_file`, `close_audio_file`, `get_metadata`.
 - `src/lib/files/RustFileDecoder.ts`: the JS `FileDecoder` for it. `src/lib/files/FileDecoder.ts` is the interface.
 
 ## API
 
 - `open_audio_file(path) -> { id, duration_seconds }`. The path must be an existing file with an audio extension (mp3, m4a, mp4, aac, flac, ogg, oga, wav, aif, aiff, caf, mka). `duration_seconds` is 0 if the file doesn't say.
 - `close_audio_file(id)`.
+- `get_metadata(path) -> [{ key, value, standard }]`: every tag in the file, unfiltered, with the same path checks as `open_audio_file`. `key` is the file's own key (`TIT2`, `TITLE`, `©nam`), `value` is text, a number or a flag (binary values, such as pictures, are replaced by a note of their size), and `standard` is symphonia's format-independent name when it has one (`TrackTitle`, `Artist`, `Album`, `TrackNumber`...). Oldest revision first, so a leading ID3v2 tag comes before a trailing ID3v1 tag. It doesn't decode or open a session. Rust picks nothing; the JS side does.
 - `file-track://localhost/{id}?start={frame}&count={frames}` (`http://file-track.localhost/` on Windows): `start` and `count` are in output frames at 44.1 kHz. `count` defaults to 2 s and is capped at 10 s. The body is headerless little-endian `f32`, stereo interleaved. It is shorter than asked at the end of the file, and empty past it. Header `X-Decode-Errors`: damaged packets skipped in the chunk; `RustFileDecoder` passes a non-zero count to `onDamagedAudio`, and `FilePlayer` shows it as a warning toast. Errors: 400 bad request, 404 unknown id, 500 with a message.
 
 ## Behaviour
@@ -31,7 +33,8 @@ This is outside "keep it a JS app" on purpose: WebKit's own flac decoder fails, 
 ## Limits
 
 - No opus: symphonia 0.6 has no opus decoder. `.opus` files are not accepted.
-- No tags: the title is the file name, and there is no artist, album or cover.
+- No cover art: pictures are not sent by `get_metadata`.
+- No tags from WAV files: symphonia 0.6.1 reads a WAV's RIFF `INFO` tags but drops them (`symphonia-format-riff` `wave/mod.rs`), so only an ID3v2 tag in front of the file comes through.
 - Surround files are not downmixed properly (see above).
 - Seeking in an mp3 without a Xing/VBRI table, or a flac without a seek table, builds an index as it goes (every 1 s of audio), so the first far seek can scan the file.
 - Files are opened by any path the page gives, checked only for being a file with an audio extension.

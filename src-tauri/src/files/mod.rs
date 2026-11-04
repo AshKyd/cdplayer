@@ -3,10 +3,12 @@
 //! The frontend opens a file by path (`open_audio_file`), then asks for chunks of PCM over the `file-track`
 //! protocol. All decoding happens here, off the main thread, and only the little that is asked for is read.
 
+mod metadata;
 pub mod protocol;
 mod resampler;
 pub mod session;
 
+pub use metadata::FileTag;
 use serde::Serialize;
 use session::FileSession;
 use std::{
@@ -31,6 +33,25 @@ pub struct OpenedFile {
     pub duration_seconds: f64,
 }
 
+/// `path` as a `Path`, if it is an existing file with an audio extension. The page can pass any path, so this is
+/// the one check before a file is opened or read.
+fn checked_audio_path(path: &str) -> Result<&Path, String> {
+    let path = Path::new(path);
+    let has_audio_extension = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| AUDIO_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str()));
+    if !has_audio_extension || !path.is_file() {
+        return Err("not an audio file".into());
+    }
+    Ok(path)
+}
+
+/// Every tag in the audio file at `path`. Reads the file's header, so call off the main thread.
+pub fn read_file_tags(path: &str) -> Result<Vec<FileTag>, String> {
+    metadata::read_tags(checked_audio_path(path)?)
+}
+
 /// The open files. Cheap to clone: every clone shares the same files.
 #[derive(Clone, Default)]
 pub struct FileRegistry(Arc<Inner>);
@@ -44,15 +65,7 @@ struct Inner {
 impl FileRegistry {
     /// Opens `path`, which must be an existing audio file. Reads the file's header, so call off the main thread.
     pub fn open(&self, path: &str) -> Result<OpenedFile, String> {
-        let path = Path::new(path);
-        let has_audio_extension = path
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .is_some_and(|extension| AUDIO_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str()));
-        if !has_audio_extension || !path.is_file() {
-            return Err("not an audio file".into());
-        }
-
+        let path = checked_audio_path(path)?;
         let session = FileSession::open(path)?;
         let duration_seconds = session.duration_seconds;
         let id = self.0.next_id.fetch_add(1, Ordering::Relaxed) + 1;
@@ -86,6 +99,7 @@ mod tests {
         let text = std::env::temp_dir().join(format!("cdplayer-test-{}-notes.txt", std::process::id()));
         std::fs::write(&text, "hello").unwrap();
         assert_eq!(registry.open(text.to_str().unwrap()).unwrap_err(), "not an audio file");
+        assert_eq!(read_file_tags(text.to_str().unwrap()).unwrap_err(), "not an audio file");
     }
 
     #[test]

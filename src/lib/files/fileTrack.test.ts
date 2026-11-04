@@ -1,5 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { titleFromPath } from "./fileTrack";
+import { applyTags, createFileTrack, titleFromPath } from "./fileTrack";
+
+describe("applyTags", () => {
+  it("takes the title, artist and track number from the tags", () => {
+    const track = createFileTrack("/Music/01 intro.mp3");
+    const tags = [
+      { key: "TIT2", value: "Intro", standard: "TrackTitle" },
+      { key: "TPE1", value: "Band", standard: "Artist" },
+      { key: "TRCK", value: "1/10", standard: "TrackNumber" },
+    ];
+    const tagged = applyTags(track, tags);
+    expect(tagged).toMatchObject({ id: track.id, path: track.path, title: "Intro", artist: "Band", trackNumber: 1, tags });
+  });
+
+  it("keeps the file name as the title when there is no title tag", () => {
+    const track = createFileTrack("/Music/01 intro.mp3");
+    expect(applyTags(track, []).title).toBe("01 intro");
+  });
+});
 
 describe("titleFromPath", () => {
   it("drops the folders and only the last extension", () => {

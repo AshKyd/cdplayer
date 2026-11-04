@@ -28,13 +28,18 @@ describe("toTrackRows", () => {
 
 describe("toFileTrackRows", () => {
   const files = [
-    { id: "a", path: "/music/a.mp3", title: "First", durationSeconds: 200 },
-    { id: "b", path: "/music/b.mp3", title: "Second", durationSeconds: 0 },
+    { id: "a", path: "/music/a.mp3", title: "First", durationSeconds: 200, tags: [] },
+    { id: "b", path: "/music/b.mp3", title: "Second", durationSeconds: 0, artist: "Band", tags: [] },
   ];
 
   it("makes a playable row per file, keyed by id and numbered in order", () => {
     const [first] = toFileTrackRows(files);
     expect(first).toEqual({ key: "a", number: 1, title: "First", artist: "", duration: "3:20", playable: true });
+  });
+
+  it("shows the artist from the file's tags", () => {
+    const [, second] = toFileTrackRows(files);
+    expect(second.artist).toBe("Band");
   });
 
   it("leaves the length empty until the file has been opened", () => {
