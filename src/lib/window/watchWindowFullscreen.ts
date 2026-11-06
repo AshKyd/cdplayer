@@ -6,11 +6,13 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
  * can't be trusted alone, because the OS can change the window without telling the page.
  *
  * Fullscreen has no dedicated event, but entering and leaving it always resizes the window.
+ * `onChange` is also called once straight away with the current state.
  * Returns a function that stops watching.
  */
 export async function watchWindowFullscreen(onChange: (fullscreen: boolean) => void): Promise<() => void> {
   const appWindow = getCurrentWindow();
   let lastKnown = await appWindow.isFullscreen();
+  onChange(lastKnown);
 
   return appWindow.onResized(async () => {
     const fullscreen = await appWindow.isFullscreen();

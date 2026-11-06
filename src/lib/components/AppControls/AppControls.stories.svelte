@@ -74,7 +74,6 @@
       onnext={() => ((positionSeconds = 0), (lastEvent = "next"))}
       onseek={(seconds) => ((positionSeconds = seconds), (lastEvent = `seek ${seconds}`))}
       onsettings={() => (lastEvent = "settings")}
-      onfullscreen={() => (lastEvent = "fullscreen")}
     />
     <p class="event">Last event: {lastEvent || "none"} · Playlist {playlistVisible ? "shown" : "hidden"}</p>
   </UIRoot>

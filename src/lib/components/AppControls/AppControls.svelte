@@ -43,7 +43,6 @@
     /** Called with the chosen time when the seek thumb is released. */
     onseek?: (seconds: number) => void;
     onsettings?: () => void;
-    onfullscreen?: () => void;
   }
 
   const noop = () => {};
@@ -70,7 +69,6 @@
     onnext = noop,
     onseek = noop,
     onsettings = noop,
-    onfullscreen = noop,
   }: Props = $props();
 </script>
 
@@ -100,13 +98,6 @@
         onclick={() => (playlistVisible = !playlistVisible)}
       />
     {/if}
-    <Button
-      variant="ghost"
-      icon="fullscreen"
-      iconPosition="only"
-      aria-label="Fullscreen visualiser"
-      onclick={onfullscreen}
-    />
     <Button variant="ghost" icon="gear" iconPosition="only" aria-label="Settings" onclick={onsettings} />
   </div>
   <div class="seek">

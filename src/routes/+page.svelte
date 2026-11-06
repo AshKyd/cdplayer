@@ -89,17 +89,13 @@
   /** macOS only: the title bar is hidden and the page runs underneath it (see `titleBarStyle` in tauri.conf.json). */
   const isMac = navigator.userAgent.includes("Macintosh");
 
-  /** Fullscreen with only the visualiser showing; Escape leaves it. */
+  /** The window is fullscreen, so only the visualiser shows. Follows the native window, however it got there. */
   let visualiserOnly = $state(false);
 
-  function setVisualiserOnly(enabled: boolean) {
-    visualiserOnly = enabled;
-    setWindowFullscreen(enabled).catch((error) => {
-      console.error(JSON.stringify({ message: "Could not change fullscreen", error: String(error) }));
-      // The window didn't change, so don't leave the page showing only the visualiser in a normal window.
-      if (enabled) visualiserOnly = false;
-    });
-  }
+  const leaveFullscreen = () =>
+    setWindowFullscreen(false).catch((error) =>
+      console.error(JSON.stringify({ message: "Could not leave fullscreen", error: String(error) })),
+    );
 
   /** The track list is shown. Hiding it leaves the visualiser behind the controls. */
   let playlistVisible = $state(true);
@@ -119,12 +115,9 @@
     player.start();
     volumeLoader.start();
 
-    // The OS can leave fullscreen without Escape reaching the page (green button, Ctrl+Cmd+F, another Space),
-    // which would strand the visualiser alone in a normal window. Only a leave is acted on: entering is
-    // asynchronous, so the window isn't fullscreen yet right after the button is pressed.
-    const stopWatchingFullscreen = watchWindowFullscreen((fullscreen) => {
-      if (!fullscreen) visualiserOnly = false;
-    }).catch((error) => {
+    // Fullscreen is entered and left through the OS (green button, Ctrl+Cmd+F, Spaces), so the window is the
+    // source of truth and the page follows it.
+    const stopWatchingFullscreen = watchWindowFullscreen((fullscreen) => (visualiserOnly = fullscreen)).catch((error) => {
       console.error(JSON.stringify({ message: "Could not watch fullscreen", error: String(error) }));
       return () => {};
     });
@@ -226,7 +219,7 @@
   label="Notifications"
 />
 
-<svelte:window onkeydown={(event) => visualiserOnly && event.key === "Escape" && setVisualiserOnly(false)} />
+<svelte:window onkeydown={(event) => visualiserOnly && event.key === "Escape" && leaveFullscreen()} />
 
 {#if settings.visualiserEnabled || visualiserOnly}
   <!-- Keyed so choosing another visualiser in settings starts a fresh canvas. -->
@@ -298,7 +291,6 @@
     onnext={() => void active.next()}
     onseek={(seconds) => void active.seek(seconds)}
     onsettings={() => void openSettingsWindow()}
-    onfullscreen={() => setVisualiserOnly(true)}
   />
   </div>
 </main>
