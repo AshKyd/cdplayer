@@ -53,7 +53,7 @@ const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(reso
 const isActiveStatus = (status: FilePlayerStatus) => status !== "idle";
 
 /**
- * Plays audio files dropped onto the app, as a playlist. It is the file counterpart of `CDPlayer`: the
+ * Plays audio files (such as those on an MP3 CD), as a playlist. It is the file counterpart of `CDPlayer`: the
  * decoded audio goes through the same `WebAudioHandler`, so the visualiser and (later) gapless playback work the same way.
  *
  * Unlike the CD queue, `tracks` is the whole playlist and stays put as tracks play; `currentIndex` says

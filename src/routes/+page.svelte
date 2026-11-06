@@ -2,7 +2,6 @@
   import { InfoBox, NotificationArea } from "svelte-akui";
   import { onMount } from "svelte";
   import AppControls from "$lib/components/AppControls/AppControls.svelte";
-  import FileDrop from "$lib/components/FileDrop/FileDrop.svelte";
   import LastFmScrobbler from "$lib/components/LastFmScrobbler/LastFmScrobbler.svelte";
   import NowPlaying from "$lib/components/NowPlaying/NowPlaying.svelte";
   import { fileNowPlayingState, nowPlayingControls, nowPlayingState } from "$lib/components/NowPlaying/NowPlayingBridge";
@@ -206,10 +205,9 @@
   nowPlaying={filesMode ? fileNowPlayingState(filePlayer) : nowPlayingState(player)}
   controls={mediaKeyControls}
 />
-<!-- Dropped files have no artist, which Last.fm needs, so only the disc is scrobbled. -->
+<!-- Files have no artist, which Last.fm needs, so only the disc is scrobbled. -->
 <LastFmScrobbler {player} />
 <CoverTheme coverUrl={filesMode ? undefined : player.metadata?.coverUrl} reading={!filesMode && isReadingDisc} />
-<FileDrop onfiles={(paths) => filePlayer.enqueue(paths)} />
 <NotificationArea
   items={notifications.items}
   onDismiss={(id) => notifications.dismiss(id)}

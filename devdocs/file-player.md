@@ -1,6 +1,6 @@
 # FilePlayer
 
-Plays audio files dropped onto the window, as a playlist. The file counterpart of `CDPlayer` ([cd-player.md](cd-player.md)): it reads decoded audio from Rust ([file-decoder.md](file-decoder.md)) and feeds `WebAudioHandler` ([web-audio-handler.md](web-audio-handler.md)), so the visualiser and gapless joins work the same way.
+Plays audio files (such as those on an MP3 CD), as a playlist. The file counterpart of `CDPlayer` ([cd-player.md](cd-player.md)): it reads decoded audio from Rust ([file-decoder.md](file-decoder.md)) and feeds `WebAudioHandler` ([web-audio-handler.md](web-audio-handler.md)), so the visualiser and gapless joins work the same way.
 
 ## Files
 
@@ -37,6 +37,6 @@ Plays audio files dropped onto the window, as a playlist. The file counterpart o
 - No tags: the title is the file name, with no artist, album or cover. So Last.fm ignores files.
 - No opus (see [file-decoder.md](file-decoder.md)).
 - Titles and artists come from the file's tags when it has them, read after the files are added ([file-metadata.md](file-metadata.md)); otherwise the title is the file name.
-- Needs Tauri: files are opened by path, which only the Tauri drop event gives. It does nothing in a plain browser.
+- Needs Tauri: files are opened by path, which only Tauri can do. It does nothing in a plain browser.
 - Playlist is not saved, and can't be reordered or have single files removed.
 - A seek back into audio that has already played goes through the decoder again.
