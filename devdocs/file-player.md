@@ -35,7 +35,6 @@ Plays audio files dropped onto the window (or found on an MP3 CD), as a playlist
 ## Limits
 
 - No tags: the title is the file name, with no artist, album or cover. So Last.fm ignores files.
-- No opus (see [file-decoder.md](file-decoder.md)).
 - Titles and artists come from the file's tags when it has them, read after the files are added ([file-metadata.md](file-metadata.md)); otherwise the title is the file name.
 - Needs Tauri: files are opened by path, which only the Tauri drop event or a disc listing gives. It does nothing in a plain browser.
 - Playlist is not saved, and can't be reordered or have single files removed.

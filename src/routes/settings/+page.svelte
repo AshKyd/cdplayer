@@ -1,6 +1,7 @@
 <script lang="ts">
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { ControlGroup, ControlItemExpanded, Settings, type SettingsSection } from "svelte-akui";
+  import AboutSettings from "$lib/components/AboutSettings/AboutSettings.svelte";
   import LastFmSettings from "$lib/components/LastFmSettings/LastFmSettings.svelte";
   import VisualiserSettings from "$lib/components/VisualiserSettings/VisualiserSettings.svelte";
   import { settings } from "$lib/settings/settings.svelte";
@@ -11,6 +12,7 @@
     { id: "general", label: "General", icon: "gear", children: general },
     { id: "visualisations", label: "Visualisations", icon: "soundwave", children: visualisations },
     { id: "lastfm", label: "Last.fm", icon: "music-note-list", children: lastFm },
+    { id: "about", label: "About", icon: "info-circle", children: about },
   ];
 </script>
 
@@ -54,6 +56,10 @@
 
 {#snippet lastFm()}
   <LastFmSettings />
+{/snippet}
+
+{#snippet about()}
+  <AboutSettings />
 {/snippet}
 
 <!-- The window opens at 640 px: wide enough for the tab column, so only the narrowest sizes use the drill-down layout. -->
