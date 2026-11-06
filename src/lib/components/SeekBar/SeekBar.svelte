@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Slider } from "svelte-akui";
   import { formatClock } from "$lib/playback/format";
 
   interface Props {
@@ -23,21 +24,26 @@
 <!-- Fades out when disabled but keeps its space, so the layout doesn't jump. -->
 <div class="seek" class:hidden={disabled}>
   <span class="time">{formatClock(shownSeconds)}</span>
-  <!-- A native range for now: akui has no slider. -->
-  <input
-    type="range"
-    min="0"
-    max={durationSeconds}
-    step="1"
-    value={shownSeconds}
-    {disabled}
-    aria-label="Seek"
-    oninput={(event) => (scrubSeconds = Number(event.currentTarget.value))}
-    onchange={(event) => {
-      scrubSeconds = null;
-      onseek(Number(event.currentTarget.value));
-    }}
-  />
+  <!-- Unfilled (an empty track with only the scrubber) and a rectangular scrubber in the accent colour. -->
+  <div class="slider">
+    <Slider
+      min={0}
+      max={durationSeconds}
+      step={1}
+      value={shownSeconds}
+      colour="none"
+      afterColour="none"
+      thumbShape="rect"
+      {disabled}
+      label="Seek"
+      valueText="{formatClock(shownSeconds)} of {formatClock(durationSeconds)}"
+      oninput={(event) => (scrubSeconds = Number(event.currentTarget.value))}
+      onchange={(event) => {
+        scrubSeconds = null;
+        onseek(Number(event.currentTarget.value));
+      }}
+    />
+  </div>
   <span class="time">{formatClock(durationSeconds)}</span>
 </div>
 
@@ -64,10 +70,9 @@
     }
   }
 
-  input {
+  .slider {
     flex: 1;
     min-width: 0;
-    accent-color: var(--akui-bg-accent);
   }
 
   /* As wide as the album art (4.5rem) so the times line up with the cover below. */

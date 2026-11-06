@@ -48,7 +48,7 @@ When the disc is ejected the status becomes `noDisc`, so the table goes away and
   - Previous: `player.previous()`. Disabled when no audio is active.
   - Next: `player.next()`. Disabled when nothing is queued after the current track.
   - All fade out (and are disabled) with no disc or while the metadata loads. Previous and Next also fade out when there is no track in that direction. Faded controls keep their space, so nothing moves.
-- `SeekBar` is a native `<input type="range">`, since akui has no slider. It follows `positionSeconds` until dragged, then calls `player.seek()` on release.
+- `SeekBar` is akui's `Slider` in `range` mode: unfilled (`colour` and `afterColour` both `none`) with a `rect` scrubber. It follows `positionSeconds` until dragged, then calls `player.seek()` on release.
 - The table is keyed on its rows, so a new disc clears the selection and scroll position.
 - Notices (`InfoBox`): audio output interrupted, unreadable sectors played as silence, and a playback error.
 
