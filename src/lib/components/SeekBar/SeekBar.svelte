@@ -24,7 +24,7 @@
 <!-- Fades out when disabled but keeps its space, so the layout doesn't jump. -->
 <div class="seek" class:hidden={disabled}>
   <span class="time">{formatClock(shownSeconds)}</span>
-  <!-- Unfilled (an empty track with only the scrubber) and a rectangular scrubber in the accent colour. -->
+  <!-- Unfilled (an empty, background-less track showing only its glow and the scrubber) and a rectangular scrubber in the accent colour. -->
   <div class="slider">
     <Slider
       min={0}
@@ -73,6 +73,12 @@
   .slider {
     flex: 1;
     min-width: 0;
+  }
+
+  /* No track background: the inset glow alone outlines the bar. */
+  .slider :global(.track),
+  .slider :global(.fill.empty) {
+    background-color: transparent;
   }
 
   /* As wide as the album art (4.5rem) so the times line up with the cover below. */
