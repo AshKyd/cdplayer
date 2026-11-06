@@ -86,6 +86,9 @@
     if (discTrack) void player.playFrom(discTrack);
   };
 
+  /** macOS only: the title bar is hidden and the page runs underneath it (see `titleBarStyle` in tauri.conf.json). */
+  const isMac = navigator.userAgent.includes("Macintosh");
+
   /** Fullscreen with only the visualiser showing; Escape leaves it. */
   let visualiserOnly = $state(false);
 
@@ -244,7 +247,11 @@
   />
 {/if}
 
-<main class:hidden={visualiserOnly}>
+<!--
+  The native title bar is an overlay on macOS, so the window is dragged by any bare part of the page. The drag
+  region only applies to the element clicked itself, so the table and controls (children of `main`) still work normally.
+-->
+<main class:hidden={visualiserOnly} class:mac={isMac} data-tauri-drag-region={isMac ? "" : undefined}>
   {#if active.interrupted}
     <InfoBox variant="warning" title="Audio output was interrupted">Press Play to continue.</InfoBox>
   {/if}
@@ -309,6 +316,11 @@
     height: 100vh;
     /* No bottom padding: the controls bar runs to the window's bottom edge. */
     padding: 0.75rem 1rem 0;
+  }
+
+  /* Leaves room for the traffic lights, which sit over the page when the title bar is an overlay. */
+  main.mac {
+    padding-top: 1.75rem;
   }
 
   /* The bottom of the window is frosted glass, edge to edge, with a faint line along its top. */

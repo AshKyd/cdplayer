@@ -21,6 +21,7 @@
 - The canvas is opaque: the visualiser fully covers the backdrop.
 - Resolution: the canvas is drawn in device pixels, but one with more than 1.5 million pixels (`FULL_RESOLUTION_MAX_PIXELS`) is drawn at half size each way (`BIG_CANVAS_SCALE`, a quarter of the pixels), and never at more than 1920 x 1080 worth of pixels (`MAX_RENDER_PIXELS`). The browser stretches it to fit. A small window is drawn 1:1.
 - Resizing: size changes are debounced by 120 ms (`RESIZE_SETTLE_MS`). Fullscreen and dragging the window edge fire a resize every frame, and each real resize reallocates butterchurn's textures and blanks the canvas. In between, the old picture is stretched. After a resize a frame is drawn at once so the canvas is never blank.
+- macOS title bar: the main window has `titleBarStyle: "Overlay"` and `hiddenTitle` in `tauri.conf.json`, so the canvas fills the whole window, under the traffic lights. `+page.svelte` makes `main` a `data-tauri-drag-region` (needs `core:window:allow-start-dragging`), so any bare part of the visualiser drags the window, and pads `main` to clear the buttons. Both are macOS only (`navigator.userAgent`); other platforms keep the native title bar.
 
 ## Adding a visualiser
 
