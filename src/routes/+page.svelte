@@ -25,7 +25,7 @@
   import { watchWindowFullscreen } from "$lib/window/watchWindowFullscreen";
 
   /** One audio output (and one visualiser tap) shared by both players; whichever starts a run takes it over. */
-  const handler = new WebAudioHandler({ fadeSeconds: () => (settings.fadeEnabled ? 0.1 : 0) });
+  const handler = new WebAudioHandler({ fadeSeconds: () => 0.1 });
 
   /** Which source the page is showing and controlling. Changes when either player starts. */
   let mode = $state<"cd" | "files">("cd");

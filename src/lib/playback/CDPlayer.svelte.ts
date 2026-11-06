@@ -43,7 +43,7 @@ interface Options {
   onDiscChange?: (toc: Toc | null) => void;
 }
 
-/** Fade length for play and pause when the setting is on. */
+/** Fade length for play and pause, which avoids clicks. */
 const FADE_SECONDS = 0.1;
 
 /**
@@ -151,7 +151,7 @@ export class CDPlayer {
   #onDiscChange: (toc: Toc | null) => void;
 
   constructor({
-    handler = new WebAudioHandler({ fadeSeconds: () => (settings.fadeEnabled ? FADE_SECONDS : 0) }),
+    handler = new WebAudioHandler({ fadeSeconds: () => FADE_SECONDS }),
     prebufferSeconds = PREBUFFER_SECONDS,
     fetchChunk = (url) => fetch(url),
     baseUrl = cdTrackBaseUrl(),

@@ -12,7 +12,7 @@ export const WAVEFORM_SAMPLES = 2048;
 interface Options {
   /** Makes the `AudioContext`. Tests pass a fake. */
   createContext?: () => AudioContext;
-  /** Length in seconds of the fade when pausing and resuming, read each time so a setting can change it. 0 is no fade. */
+  /** Length in seconds of the fade when pausing and resuming, read each time. 0 is no fade (the default; the players pass 0.1). */
   fadeSeconds?: () => number;
 }
 

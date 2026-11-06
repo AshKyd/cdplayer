@@ -26,7 +26,6 @@ User settings, kept in a store that every window shares, saved to `localStorage`
 - Current settings:
   - `musicBrainzEnabled` (default on): `CDPlayer` looks discs up only when it is on. When off nothing is sent, the disc is ready straight away, and no error is shown. It applies from the next disc read.
   - `autoplayEnabled` (default off): a disc plays from the first track once it is ready (after the metadata lookup). Read by `CDPlayer` each time a disc settles.
-  - `fadeEnabled` (default on): the audio fades in and out over 100 ms on play, resume and pause. Read each time, so it applies at once.
   - `visualiserEnabled` (default on): the page shows the `Visualiser` behind the player. When off the component is unmounted, so nothing is drawn or measured. It applies at once, in every window.
   - `visualiserId` (default `Geiss - Cauldron - painterly 2 (saturation remix)`): a butterchurn preset name, or `random`. Non-strings fall back to the default; a name missing from the pack draws nothing. Changing it re-creates the canvas.
   - `lastFmUsername`, `lastFmPasswordHash` (default empty): the Last.fm login, set in the "Last.fm" section. Only the MD5 of the password is stored. Read each time `LastFmScrobbler` sends, so it applies at once. See [last-fm.md](last-fm.md).

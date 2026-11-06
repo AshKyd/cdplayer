@@ -45,14 +45,6 @@
       wrapperRole="listitem"
       bind:checked={settings.autoplayEnabled}
     />
-    <ControlItemExpanded
-      label="Fade when playing and pausing"
-      description="Fades the sound in and out over 100 ms, which avoids clicks."
-      layout="horizontal"
-      controlType="checkbox"
-      wrapperRole="listitem"
-      bind:checked={settings.fadeEnabled}
-    />
   </ControlGroup>
 {/snippet}
 

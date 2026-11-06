@@ -6,8 +6,6 @@ import { tauriSettingsSync } from "./tauriSettingsSync";
 export interface SettingsValues {
   /** Look up track names and cover art on MusicBrainz when a disc is inserted. */
   readonly musicBrainzEnabled: boolean;
-  /** Fade the sound in and out over 100 ms when playing and pausing, to avoid clicks. */
-  readonly fadeEnabled: boolean;
   /** Start playing from the first track as soon as a disc is ready. */
   readonly autoplayEnabled: boolean;
   /** Draw the visualiser behind the player. */
@@ -24,7 +22,6 @@ export interface SettingsValues {
 
 export const DEFAULT_SETTINGS: SettingsValues = {
   musicBrainzEnabled: true,
-  fadeEnabled: true,
   autoplayEnabled: false,
   visualiserEnabled: true,
   visualiserId: DEFAULT_VISUALISER_ID,
@@ -72,7 +69,6 @@ const loadValues = (storage: SettingsStorage | null): SettingsValues => {
 const pickKnownValues = (incoming: Partial<SettingsValues>): SettingsValues => ({
   musicBrainzEnabled:
     typeof incoming.musicBrainzEnabled === "boolean" ? incoming.musicBrainzEnabled : DEFAULT_SETTINGS.musicBrainzEnabled,
-  fadeEnabled: typeof incoming.fadeEnabled === "boolean" ? incoming.fadeEnabled : DEFAULT_SETTINGS.fadeEnabled,
   autoplayEnabled:
     typeof incoming.autoplayEnabled === "boolean" ? incoming.autoplayEnabled : DEFAULT_SETTINGS.autoplayEnabled,
   visualiserEnabled:
@@ -122,14 +118,6 @@ export class AppSettings implements SettingsValues {
 
   set musicBrainzEnabled(enabled: boolean) {
     this.#change({ musicBrainzEnabled: enabled });
-  }
-
-  get fadeEnabled(): boolean {
-    return this.#current.fadeEnabled;
-  }
-
-  set fadeEnabled(enabled: boolean) {
-    this.#change({ fadeEnabled: enabled });
   }
 
   get autoplayEnabled(): boolean {

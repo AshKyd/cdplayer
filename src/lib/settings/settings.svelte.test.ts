@@ -110,16 +110,6 @@ describe("AppSettings", () => {
     expect(new AppSettings({ storage: bad }).coverColours).toBeNull();
   });
 
-  it("starts with fading on, and saves turning it off", () => {
-    const storage = makeStorage();
-    const settings = new AppSettings({ storage });
-    expect(settings.fadeEnabled).toBe(true);
-
-    settings.fadeEnabled = false;
-
-    expect(JSON.parse(storage.items[KEY]).fadeEnabled).toBe(false);
-  });
-
   it("applies and saves a change from another window without sending it back", () => {
     const storage = makeStorage();
     const { sync, published, receive } = makeSync();

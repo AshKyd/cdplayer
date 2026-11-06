@@ -3,7 +3,6 @@ import { applyTags, createFileTrack, type FileTrack } from "$lib/files/fileTrack
 import type { FileDecoder } from "$lib/files/FileDecoder";
 import { openRustFileDecoder } from "$lib/files/RustFileDecoder";
 import type { Problem } from "$lib/notifications/notifications.svelte";
-import { settings } from "$lib/settings/settings.svelte";
 import { currentSpanIndex, type TrackSpan } from "./chunks";
 import { RESTART_THRESHOLD_SECONDS } from "./navigation";
 import { SAMPLE_RATE, WebAudioHandler } from "./WebAudioHandler";
@@ -34,7 +33,7 @@ interface Options {
   onProblem?: (problem: Problem) => void;
 }
 
-/** Fade length for play and pause when the setting is on. */
+/** Fade length for play and pause, which avoids clicks. */
 const FADE_SECONDS = 0.1;
 
 /** A run doesn't make a sound until this much audio is decoded, so a slow first read can't cause a stutter. */
@@ -108,7 +107,7 @@ export class FilePlayer {
   #pausedByInterruption = false;
 
   constructor({
-    handler = new WebAudioHandler({ fadeSeconds: () => (settings.fadeEnabled ? FADE_SECONDS : 0) }),
+    handler = new WebAudioHandler({ fadeSeconds: () => FADE_SECONDS }),
     openDecoder = (path) => openRustFileDecoder(path),
     readTags = (path) => readFileTags(path),
     prebufferSeconds = PREBUFFER_SECONDS,
