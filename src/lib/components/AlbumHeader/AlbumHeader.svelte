@@ -18,8 +18,8 @@
     onopencover?: () => void;
     /** True while the cover is shown full size elsewhere, which holds the view transition name instead. */
     coverOpen?: boolean;
-    /** The track being played. When set, its title and artist replace the album's, and no year is shown. */
-    track?: { title: string; artist: string } | null;
+    /** The track being played. When set, its title replaces the album's; artist and year are shown when known. */
+    track?: { title: string; artist: string; year?: string } | null;
     /** The source can't have a cover (audio files, such as an MP3 CD), so no space is kept for one. */
     coverless?: boolean;
   }
@@ -75,16 +75,11 @@
   /** The playing track's title, otherwise the album's (or the placeholder message). */
   const heading = $derived(track?.title || (metadata ? metadata.album : message));
 
-  /**
-   * Artist (and year) under the heading. MusicBrainz gives a year for the release only, not per track, so a
-   * track shows its artist alone; the year is only shown with the album.
-   */
+  /** Whatever of artist and year is known, under the heading. A track falls back to the disc's artist and year. */
   const details = $derived(
-    track
-      ? track.artist || metadata?.artist || ""
-      : metadata
-        ? [metadata.artist, metadata.year].filter(Boolean).join(" · ")
-        : "",
+    [track ? track.artist || metadata?.artist : metadata?.artist, track ? track.year || metadata?.year : metadata?.year]
+      .filter(Boolean)
+      .join(" · "),
   );
 </script>
 

@@ -146,6 +146,8 @@
           (track) => player.trackArtist(track),
         ),
   );
+  /** A list of one track has nothing to choose between, so it is never shown (and has no toggle to hide it). */
+  const hasPlaylist = $derived(rows.length >= 2);
   /** Number of the playing row in `rows`, from 1. */
   const currentRowNumber = $derived(
     filesMode ? (filePlayer.currentIndex === null ? null : filePlayer.currentIndex + 1) : player.trackNumber,
@@ -156,16 +158,20 @@
       : player.queue.length > 1,
   );
   /**
-   * The disc track being played, shown in the album header in place of the album. Files already show their name
-   * as the header's message, and have no artist.
+   * The track being played, shown in the album header in place of the album. Missing parts drop out of the
+   * header; a file with no title tag is titled by its file name.
    */
   const currentTrack = $derived.by(() => {
-    if (filesMode) return null;
+    if (filesMode) {
+      const { current } = filePlayer;
+      return current ? { title: current.title, artist: current.artist ?? "", year: current.year ?? "" } : null;
+    }
     const track = player.tracks.find(({ number }) => number === player.trackNumber);
     if (!track?.is_audio) return null;
     return {
       title: player.trackTitle(track),
       artist: player.trackArtist(track) || player.metadata?.artist || "",
+      year: player.metadata?.year ?? "",
     };
   });
   /** True while the disc is being read or looked up. */
@@ -250,7 +256,7 @@
     <InfoBox variant="error" title="Playback stopped">{player.error}</InfoBox>
   {/if}
 
-  {#if !isNothingToShow && playlistVisible}
+  {#if !isNothingToShow && hasPlaylist && playlistVisible}
     {#if !filesMode && !player.metadata && player.metadataError}
       <p class="hint">Track names unavailable: {player.metadataError}.</p>
     {/if}
@@ -276,7 +282,7 @@
     durationSeconds={active.durationSeconds}
     seekDisabled={isTransportDisabled || !isActive}
     bind:playlistVisible
-    playlistToggleable={rows.length >= 2}
+    playlistToggleable={hasPlaylist}
     onopencover={() => setCoverOpen(true)}
     onprevious={() => void active.previous()}
     onplaypause={() => void active.playPause()}

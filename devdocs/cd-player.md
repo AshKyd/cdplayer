@@ -38,7 +38,7 @@ The player: finds the disc, looks up its track names ([musicbrainz.md](musicbrai
 ## Behaviour
 
 - The first chunk of a run is 75 sectors (1 s) so playback starts quickly. Later chunks are 375 sectors (5 s).
-- Chunks are fetched until about 30 s is scheduled ahead, then the loop waits. It also waits while paused.
+- Chunks are fetched until about 30 s is scheduled ahead, then the loop waits. It also waits while paused. `resume()` cuts that wait short and reads one chunk at once even with a full lead, so a drive that spun down during the pause starts up while the buffer still plays.
 - When a track's last chunk is scheduled, the loop moves on to the next queued track. The next track is therefore buffered before the current one ends. The handler joins it by frame count, so there is no gap.
 - The loop reads `queue` as it runs, so tracks added during playback are picked up. If the loop had already finished, `enqueue()` restarts it.
 - The handler's timeline runs across all tracks. `#spans` holds one `TrackSpan` per fetched track (start second on the timeline, and the offset into the track). Each frame, `currentSpanIndex()` finds the playing span, finished tracks are removed from the front of `queue`, and `trackNumber` and `positionSeconds` are set from it.

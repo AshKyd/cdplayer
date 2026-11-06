@@ -74,6 +74,12 @@
           track={{ title: "Rapture (Original Mix) (feat. Justine Suissa)", artist: "Armin van Buuren, Ferry Corsten & Tiësto" }}
         />
       </div>
+      <div class="album">
+        <AlbumHeader metadata={null} coverless track={{ title: "Sirens of the Sea", artist: "Above & Beyond", year: "2011" }} />
+      </div>
+      <div class="album">
+        <AlbumHeader metadata={null} coverless track={{ title: "01 - sirens.flac", artist: "" }} />
+      </div>
     </div>
   </UIRoot>
 </Story>

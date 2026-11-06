@@ -63,8 +63,6 @@ const LEAD_CHECK_INTERVAL_MS = 250;
 /** Response header from the `cd-track` protocol: sectors in the chunk that were unreadable. */
 const UNREADABLE_SECTORS_HEADER = "X-Unreadable-Sectors";
 
-const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
-
 /**
  * The CD player: finds the disc, looks up its track names, and plays a queue of its tracks.
  *
@@ -140,6 +138,10 @@ export class CDPlayer {
   #fetching = false;
   /** True while a chunk is being read from the drive; the watcher must not re-open the drive then. */
   #isReadingChunk = false;
+  /** Set by `resume()`: the next chunk is read even though the buffer is full, to wake the drive. */
+  #wakeRead = false;
+  /** Cuts short the fetch loop's current sleep. `null` when it isn't sleeping. */
+  #wakeFetchLoop: (() => void) | null = null;
   /** Seconds of audio scheduled so far on the handler's timeline. */
   #scheduledSeconds = 0;
   /** True from the start of a run until `#prebufferSeconds` are buffered; the handler is held silent meanwhile. */
@@ -369,11 +371,37 @@ export class CDPlayer {
     // Still prebuffering: the handler stays held until enough is buffered.
     if (this.#prebuffering) {
       this.#dispatch({ type: "resume", to: "loading" });
+      this.#wakeDrive();
       this.#openGateIfReady();
       return;
     }
     await this.#handler.resume();
     this.#dispatch({ type: "resume", to: this.#statusAfterPause() });
+    this.#wakeDrive();
+  }
+
+  /**
+   * Makes the fetch loop read from the disc now, even if the buffer is full. A long pause lets the drive spin
+   * down, and the full buffer would otherwise hide that until it ran dry; reading at once spins it up while
+   * the buffered audio is still playing.
+   */
+  #wakeDrive(): void {
+    if (!this.#fetching) return;
+    this.#wakeRead = true;
+    this.#wakeFetchLoop?.();
+  }
+
+  /** Sleeps for `milliseconds`, or less if `#wakeDrive()` is called. */
+  #sleepUnlessWoken(milliseconds: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(done, milliseconds);
+      const wake = () => done();
+      this.#wakeFetchLoop = wake;
+      function done() {
+        clearTimeout(timer);
+        resolve();
+      }
+    }).finally(() => (this.#wakeFetchLoop = null));
   }
 
   togglePause(): Promise<void> {
@@ -448,6 +476,7 @@ export class CDPlayer {
     this.#spans = [];
     this.#fetchIndex = 0;
     this.#fetching = false;
+    this.#wakeRead = false;
     this.#scheduledSeconds = 0;
     this.queue = [];
     this.trackNumber = null;
@@ -565,11 +594,12 @@ export class CDPlayer {
     let isFirstChunk = this.#spans.length === 0;
 
     while (cursorSector < totalSectors) {
-      // Wait while the lead is full, or paused (the lead isn't shrinking then).
-      while (this.status === "paused" || this.#handler.leadSeconds >= TARGET_LEAD_SECONDS) {
-        await sleep(LEAD_CHECK_INTERVAL_MS);
+      // Wait while the lead is full, or paused (the lead isn't shrinking then). A resume skips the full-lead wait once.
+      while (this.status === "paused" || (this.#handler.leadSeconds >= TARGET_LEAD_SECONDS && !this.#wakeRead)) {
+        await this.#sleepUnlessWoken(LEAD_CHECK_INTERVAL_MS);
         if (isCancelled()) return;
       }
+      this.#wakeRead = false;
 
       const sectorCount = nextChunkSectorCount(track, cursorSector, isFirstChunk);
       this.#isReadingChunk = true;

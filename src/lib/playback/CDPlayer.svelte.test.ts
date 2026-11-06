@@ -291,6 +291,24 @@ describe("CDPlayer", () => {
       expect(requestedUrls.length).toBe(requestsBefore);
     });
 
+    it("reads from the disc as soon as Play is pressed, even with a full buffer", async () => {
+      const { player, requestedUrls, deliverChunk } = current;
+      void player.play(track);
+      // Deliver until the lead is full and the fetch loop goes idle.
+      for (let attempt = 0; attempt < 10; attempt++) await deliverChunk();
+      await vi.advanceTimersByTimeAsync(1000);
+      const requestsWhenFull = requestedUrls.length;
+      expect(requestsWhenFull).toBeGreaterThan(0);
+
+      await player.pause();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(requestedUrls.length).toBe(requestsWhenFull);
+
+      await player.resume();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(requestedUrls.length).toBe(requestsWhenFull + 1);
+    });
+
     it("notices the disc being ejected while paused", async () => {
       const { player, disc, deliverChunk } = current;
       void player.play(track);

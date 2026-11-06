@@ -14,8 +14,8 @@
     busy?: boolean;
     /** True while the cover is shown full size elsewhere. */
     coverOpen?: boolean;
-    /** The track being played, shown in place of the album's title and artist. */
-    track?: { title: string; artist: string } | null;
+    /** The track being played, shown in place of the album's title, with its artist and year when known. */
+    track?: { title: string; artist: string; year?: string } | null;
     /** The source has no cover art (audio files), so the cover's space is dropped. */
     coverless?: boolean;
     /** Whether audio is active (shows Pause) rather than stopped or paused (shows Play). */
