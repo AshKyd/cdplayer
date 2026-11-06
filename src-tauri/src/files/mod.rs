@@ -3,6 +3,7 @@
 //! The frontend opens a file by path (`open_audio_file`), then asks for chunks of PCM over the `file-track`
 //! protocol. All decoding happens here, off the main thread, and only the little that is asked for is read.
 
+mod codecs;
 mod metadata;
 pub mod protocol;
 mod resampler;
@@ -22,8 +23,8 @@ use std::{
 
 /// File types the player accepts. symphonia decides in the end whether it can decode one.
 /// Keep in step with `AUDIO_EXTENSIONS` in `src/lib/files/audioFiles.ts`, which filters what is dropped.
-const AUDIO_EXTENSIONS: [&str; 12] =
-    ["mp3", "m4a", "mp4", "aac", "flac", "ogg", "oga", "wav", "aif", "aiff", "caf", "mka"];
+const AUDIO_EXTENSIONS: [&str; 13] =
+    ["mp3", "m4a", "mp4", "aac", "flac", "ogg", "oga", "opus", "wav", "aif", "aiff", "caf", "mka"];
 
 /// What the frontend learns when it opens a file.
 #[derive(Debug, Serialize)]

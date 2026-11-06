@@ -32,7 +32,7 @@ This is outside "keep it a JS app" on purpose: WebKit's own flac decoder fails, 
 
 ## Limits
 
-- No opus: symphonia 0.6 has no opus decoder. `.opus` files are not accepted.
+- Opus: symphonia 0.6 has no opus decoder, so `files/codecs.rs` adds one to the codec registry from `symphonia-adapter-libopus` (bundled libopus, built with cmake). Mono and stereo only; the adapter rejects more channels. `FileSession` uses `codecs::registry()` instead of `symphonia::default::get_codecs()`.
 - No cover art: pictures are not sent by `get_metadata`.
 - No tags from WAV files: symphonia 0.6.1 reads a WAV's RIFF `INFO` tags but drops them (`symphonia-format-riff` `wave/mod.rs`), so only an ID3v2 tag in front of the file comes through.
 - Surround files are not downmixed properly (see above).

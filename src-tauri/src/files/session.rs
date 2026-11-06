@@ -75,7 +75,7 @@ impl FileSession {
                 .map(|time| time.as_secs_f64())
                 .or_else(|| track.num_frames.map(|frames| frames as f64 / f64::from(sample_rate)))
                 .unwrap_or(0.0);
-            let decoder = symphonia::default::get_codecs()
+            let decoder = super::codecs::registry()
                 .make_audio_decoder(params, &AudioDecoderOptions::default())
                 .map_err(|error| format!("unsupported audio format: {error}"))?;
             (track.id, time_base_seconds, duration_seconds, decoder)

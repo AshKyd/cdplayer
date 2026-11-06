@@ -2,7 +2,7 @@
  * File extensions the player tries to play. Rust (symphonia) decides in the end whether it can decode one.
  * Keep in step with `AUDIO_EXTENSIONS` in `src-tauri/src/files/mod.rs`, which checks a path again when it is opened.
  */
-const AUDIO_EXTENSIONS = ["mp3", "m4a", "mp4", "aac", "flac", "ogg", "oga", "wav", "aif", "aiff", "caf", "mka"];
+const AUDIO_EXTENSIONS = ["mp3", "m4a", "mp4", "aac", "flac", "ogg", "oga", "opus", "wav", "aif", "aiff", "caf", "mka"];
 
 const extensionOf = (path: string): string => path.split(".").at(-1)?.toLowerCase() ?? "";
 
