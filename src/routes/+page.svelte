@@ -275,7 +275,7 @@
   {/if}
 
   <!-- Below the playlist, so it stays at the bottom edge of the window. -->
-  <div class="controls-bar">
+  <div class="controls-bar" class:plain={!settings.visualiserEnabled}>
   <AppControls
     metadata={filesMode ? null : player.metadata}
     message={albumPlaceholder}
@@ -331,6 +331,13 @@
     background: color-mix(in srgb, var(--akui-bg) 40%, transparent);
     backdrop-filter: blur(12px);
     border-top: 1px solid color-mix(in srgb, var(--akui-fg) 10%, transparent);
+  }
+
+  /* Nothing is behind the bar without the visualiser, so drop the glass and its top line to blend with the page. */
+  .controls-bar.plain {
+    background: none;
+    backdrop-filter: none;
+    border-top: none;
   }
 
   /* Visualiser-only mode: hide all page chrome, keeping the player mounted so playback continues. */
