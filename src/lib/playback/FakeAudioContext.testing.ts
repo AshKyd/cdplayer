@@ -44,13 +44,14 @@ export class FakeGain {
   disconnect() {}
 }
 
-/** A stand-in for `AnalyserNode` that reports silence. */
+/** A stand-in for `AnalyserNode` that reports a flat level (128 = silence) the test can change. */
 export class FakeAnalyser {
   fftSize = 2048;
+  level = 128;
   connect() {}
   disconnect() {}
   getByteTimeDomainData(target: Uint8Array) {
-    target.fill(128);
+    target.fill(this.level);
   }
 }
 
@@ -106,8 +107,12 @@ export class FakeAudioContext {
     return gain;
   }
 
+  analysers: FakeAnalyser[] = [];
+
   createAnalyser() {
-    return new FakeAnalyser();
+    const analyser = new FakeAnalyser();
+    this.analysers.push(analyser);
+    return analyser;
   }
 
   createBufferSource() {

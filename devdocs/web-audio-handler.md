@@ -22,7 +22,7 @@ Schedules PCM segments back to back on the Web Audio clock. It knows nothing abo
 - Times for `dropAfter`/`skipTo` are on the timeline: the same clock as `playedSeconds`.
 - `suspend()` / `resume()`: pause and resume the `AudioContext`. Scheduled sources are kept. All sources play through one `GainNode`. With a fade, `suspend()` ramps the gain to 0, waits, then suspends (only if audio is playing; skipped if `resume()` or `stop()` came during the fade). `resume()` ramps the gain from 0 to 1.
 - `stop()`: stops and drops all sources, clears a requested pause and resets the clock.
-- `readWaveform(target)`: fills `target` with the latest output samples (bytes, 128 = silence) from an `AnalyserNode` placed after the gain (`WAVEFORM_SAMPLES` = 2048). Returns `false` before the first segment. Frozen while suspended.
+- `readWaveform(target)`: fills `target` with output samples (bytes, 128 = silence) from an `AnalyserNode` placed after the gain (`WAVEFORM_SAMPLES` = 2048), delayed by `latencySeconds` so a visualiser matches what is heard (Bluetooth can be 150 to 300 ms late). Silence until that much time has passed. Returns `false` before the first segment. Frozen while suspended. `stop()` and `skipTo()` clear the stored snapshots.
 - `onEnded`: callback set by the owner. Called when no scheduled source is left. The handler is shared by `CDPlayer` and `FilePlayer`; whichever starts a run sets these callbacks.
 - `onInterruption(interrupted)`: callback set by the owner. `true` when the system stops the audio without being asked, `false` when it runs again.
 
@@ -49,5 +49,6 @@ Schedules PCM segments back to back on the Web Audio clock. It knows nothing abo
 - `skipTo()` can't go back to audio that has finished (its segment is gone), or to audio not yet appended. The owner restarts the source for those.
 - No volume control (the gain is only for fades).
 - `outputLatency` may be missing in WebKit; `baseLatency` understates the delay on Bluetooth.
+- `readWaveform()` keeps one snapshot per call, so its delay is accurate to the caller's poll interval (about 33 ms at 30 fps).
 - The context follows the system default output device. It is not re-pointed at a new device.
 - Interruption recovery is untested on real hardware.

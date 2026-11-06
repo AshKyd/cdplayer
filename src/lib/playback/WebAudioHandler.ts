@@ -58,6 +58,8 @@ export class WebAudioHandler {
   #gain: GainNode | null = null;
   /** Taps the output for `readWaveform()`. */
   #analyser: AnalyserNode | null = null;
+  /** Recent analyser snapshots by context time, oldest first, so `readWaveform()` can show what is being heard now. */
+  #waveformHistory: Array<{ time: number; samples: Uint8Array }> = [];
   /** Bumped by `suspend()`, `resume()` and `stop()`, so a fade-out that was overtaken doesn't suspend the context. */
   #fadeToken = 0;
   #segments: Segment[] = [];
@@ -145,12 +147,30 @@ export class WebAudioHandler {
   }
 
   /**
-   * Fills `target` (up to `WAVEFORM_SAMPLES` long) with the latest output samples as unsigned bytes,
-   * where 128 is silence. Returns `false` before any audio has been scheduled.
+   * Fills `target` (up to `WAVEFORM_SAMPLES` long) with the output samples as unsigned bytes, where 128 is
+   * silence, delayed by `latencySeconds` to match what is being heard. Returns `false` before any audio has
+   * been scheduled.
    */
   readWaveform(target: Uint8Array<ArrayBuffer>): boolean {
-    if (!this.#analyser) return false;
-    this.#analyser.getByteTimeDomainData(target);
+    const context = this.#context;
+    if (!context || !this.#analyser) return false;
+
+    // The analyser hears the audio as it leaves the graph, but the speakers (Bluetooth especially) play it
+    // `latencySeconds` later. Keep recent snapshots and hand back the one from that long ago, so the picture
+    // lines up with what is heard. The audio itself is not delayed.
+    const now = context.currentTime;
+    const snapshot = new Uint8Array(target.length);
+    this.#analyser.getByteTimeDomainData(snapshot);
+    this.#waveformHistory.push({ time: now, samples: snapshot });
+
+    const heardTime = now - this.latencySeconds;
+    const lastHeardIndex = this.#waveformHistory.findLastIndex(({ time }) => time <= heardTime);
+    // Keep the snapshot being shown (it stays current until a newer one is due); drop what came before it.
+    // That bounds the list to about `latencySeconds` of snapshots.
+    this.#waveformHistory = this.#waveformHistory.slice(Math.max(0, lastHeardIndex));
+
+    if (lastHeardIndex < 0) target.fill(128);
+    else target.set(this.#waveformHistory[0].samples);
     return true;
   }
 
@@ -226,6 +246,7 @@ export class WebAudioHandler {
     const kept = this.#segments.filter(({ startFrame, frames }) => startFrame + frames > cutFrame);
     this.#segments.forEach((segment) => this.#detach(segment));
     this.#segments = [];
+    this.#waveformHistory = [];
 
     // The audio at the cut now plays at the new anchor; everything after keeps its distance from it.
     this.#baseTime = context.currentTime + START_DELAY_SECONDS;
@@ -276,6 +297,7 @@ export class WebAudioHandler {
   stop(): void {
     this.#segments.forEach((segment) => this.#detach(segment));
     this.#segments = [];
+    this.#waveformHistory = [];
     this.#scheduledFrames = 0;
     this.#baseTime = 0;
     this.#playedBeforeBase = 0;

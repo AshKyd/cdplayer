@@ -14,7 +14,7 @@
 ## Behaviour
 
 - Runs on the main thread. butterchurn needs `window`, `document` and WebGL2, so it cannot run in a worker.
-- Each frame the page reads the `AnalyserNode` bytes (`readWaveform`) and passes them to `render({ audioLevels })`, the same samples for both channels. When not playing it passes silence (128), so the preset settles.
+- Each frame the page reads the `AnalyserNode` bytes (`readWaveform`) and passes them to `render({ audioLevels })`, the same samples for both channels. `readWaveform` delays them by the output latency, so the picture matches Bluetooth speakers (see `web-audio-handler.md`). When not playing it passes silence (128), so the preset settles.
 - butterchurn is given an `OfflineAudioContext` only for its sample rate (44.1 kHz).
 - Changing preset blends over 1.5 s. Settings re-create the component (`{#key}`) anyway.
 - No track title is drawn over the picture.

@@ -148,6 +148,60 @@ describe("WebAudioHandler", () => {
     });
   });
 
+  describe("readWaveform", () => {
+    /** Reads one frame with the analyser at `level` and the clock at `time`. */
+    const readAt = (
+      { context, handler }: ReturnType<typeof setup>,
+      time: number,
+      level: number,
+    ): number => {
+      context.currentTime = time;
+      context.analysers[0].level = level;
+      const target = new Uint8Array(4);
+      handler.readWaveform(target);
+      return target[0];
+    };
+
+    it("shows the audio from `latencySeconds` ago, with silence until then", () => {
+      const parts = setup();
+      parts.handler.appendSegment(silence(5));
+      parts.context.baseLatency = 0;
+      // Times are exact binary fractions so the comparison against `now - latency` has no rounding error.
+      parts.context.outputLatency = 0.25;
+
+      expect(readAt(parts, 0, 200)).toBe(128);
+      expect(readAt(parts, 0.125, 210)).toBe(128);
+      expect(readAt(parts, 0.25, 220)).toBe(200);
+      expect(readAt(parts, 0.375, 230)).toBe(210);
+      expect(readAt(parts, 0.5, 240)).toBe(220);
+    });
+
+    it("is immediate when there is no latency", () => {
+      const parts = setup();
+      parts.handler.appendSegment(silence(5));
+      parts.context.baseLatency = 0;
+
+      expect(readAt(parts, 0, 200)).toBe(200);
+      expect(readAt(parts, 0.1, 210)).toBe(210);
+    });
+
+    it("forgets old audio on stop()", () => {
+      const parts = setup();
+      parts.handler.appendSegment(silence(5));
+      parts.context.baseLatency = 0;
+      parts.context.outputLatency = 0.25;
+      readAt(parts, 0, 200);
+
+      parts.handler.stop();
+
+      expect(readAt(parts, 0.25, 128)).toBe(128);
+    });
+
+    it("returns false before there is a context", () => {
+      expect(new WebAudioHandler().readWaveform(new Uint8Array(4))).toBe(false);
+    });
+  });
+
   /** Three 1 s segments, starting 0.05 s, 1.05 s and 2.05 s on the context clock. Latency is zero. */
   const withThreeSeconds = () => {
     const parts = setup();
