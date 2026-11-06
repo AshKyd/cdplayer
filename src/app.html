@@ -9,6 +9,13 @@
     <style>
       :root {
         color-scheme: light dark;
+        /* Matches akui's default `--akui-bg`, so the webview is never white while the theme loads */
+        background: oklch(0.995 0.004 263);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          background: oklch(0.17 0.012 263);
+        }
       }
     </style>
     <title>Tauri + SvelteKit + Typescript App</title>
